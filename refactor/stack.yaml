@@ -1,0 +1,13 @@
+resolver: lts-10.0
+system-ghc: true
+
+packages: [.]
+
+extra-deps:
+  - HDBC-sqlite3-2.3.3.1
+
+extra-include-dirs:
+  - C:\Users\nboldi\Desktop\ht-2\sqlite-tools-win32-x86-3210000\sqlite-amalgamation-3210000
+
+extra-lib-dirs:
+  - C:\Users\nboldi\Desktop\ht-2\sqlite-tools-win32-x86-3210000
