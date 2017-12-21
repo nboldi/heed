@@ -5,14 +5,6 @@ packages:
   - export
   - refactor
   - core
-  - location:
-      git: https://github.com/tathougies/beam.git
-      commit: c3eda7726edbb17176f29efa153e260dd79a5be6
-    extra-dep: true
-    subdirs:
-      - beam-core
-      - beam-migrate
-      - beam-sqlite
 
 extra-deps:
   - HDBC-sqlite3-2.3.3.1

@@ -19,6 +19,6 @@ library
   exposed-modules:     Core
   -- other-modules:       
   -- other-extensions:    
-  build-depends:       base >=4.10 && <4.11
+  build-depends:       base >=4.10 && <4.11, selda, text, exceptions, ghc, mtl, transformers
   -- hs-source-dirs:      
   default-language:    Haskell2010

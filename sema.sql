@@ -1,6 +1,6 @@
 
 CREATE TABLE nodes ( 
-	type VARCHAR(50), 
+	node_type VARCHAR(50), 
 	ctor VARCHAR(50), 
 	file VARCHAR(200), 
 	start_row INT, 
@@ -13,7 +13,7 @@ CREATE TABLE nodes (
 	parent_end_row INT,
 	parent_end_col INT,
 	parent_handle VARCHAR(50),
-	PRIMARY KEY( file, start_row, start_col, end_row, end_col, type )
+	PRIMARY KEY( file, start_row, start_col, end_row, end_col, node_type )
 );
 
 CREATE TABLE name_infos ( 

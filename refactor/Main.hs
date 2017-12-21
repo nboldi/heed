@@ -2,45 +2,70 @@ module Main where
 
 import System.Environment
 import Data.List.Split
-import Database.HDBC
-import Database.HDBC.Sqlite3
+import Database.Selda
+import Database.Selda.SQLite
 
-main :: IO ()
-main = do [span, str] <- getArgs
-          conn <- connectSqlite3 "..\\haskell.db"
+import Data.Text (pack)
+
+import Core
+
+main = do [span, newName] <- liftIO $ getArgs
+          refactor span newName
+
+refactor :: String -> String -> IO ()
+refactor span newName = withSQLite "haskell.db" $ do
           let (stRow, stCol, endRow, endCol) = readSpan span
-          selectedNameRes 
-            <- quickQuery' conn ("SELECT file, start_row, start_col, end_row, end_col, namespace, uniq"
-                                    ++ " FROM name_infos"
-                                    ++ " WHERE (start_row < ? OR (start_row = ? AND start_col <= ?))" 
-                                    ++ " AND (end_row < ? OR (end_row = ? AND end_col >= ?))"
-                                    ++ " LIMIT 1")
-                                [toSql stRow, toSql stRow, toSql stCol, toSql endRow, toSql endRow, toSql endCol]
-          let [file, stRow, stCol, endRow, endCol, namespace, uniq] = head selectedNameRes
-          res <- quickQuery' conn ("SELECT start_row, start_col, end_row, end_col"
-                                      ++ " FROM name_infos" 
-                                      ++ " WHERE uniq = ?")
-                                  [uniq]
-          -- there is a clash if a renamed name cannot be distinguished from another one
-          clash <- quickQuery' conn ("SELECT DISTINCT occ.start_row, occ.start_col" 
-                                        ++ " FROM name_infos occ JOIN scopes sc JOIN scope_names snm"
-                                                   -- the name is in the scope
-                                        ++ " ON sc.scope_id = snm.scope_id"
-                                                   -- occ is in the scope
-                                        ++ " WHERE ((sc.start_row < occ.start_row OR (sc.start_row = occ.start_row AND sc.start_col <= occ.start_col))" 
-                                               ++ " AND (sc.end_row < occ.end_row OR (sc.end_row = occ.end_row AND sc.end_col >= occ.end_col)))"
-                                                                          -- the name found is the result of renaming, while the renamed is in scope
-                                        ++ " AND occ.namespace = ? AND ((occ.name = ? AND snm.uniq = ?)" 
-                                                   -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming
-                                        ++ " OR (occ.uniq = ? AND snm.name = ?));")
-                               [ namespace, toSql str, uniq, uniq, toSql str]
+          
+          selectedName <- query $ limit 0 1 $ do
+            n <- select names
+            restrict $ (int stRow .< n ! name_start_row
+                          .|| int stRow .== n ! name_start_row .&& int stCol .<= n ! name_start_col)
+            restrict $ (n ! name_end_row .< int endRow 
+                          .|| n ! name_end_row .== int endRow .&& n ! name_end_col .<= int endCol)
+            return ( n ! name_uniq :*: n ! name_namespace )
+          let uniq :*: namespace = head selectedName
+          
+          rewritten <- query $ do
+            n <- select names
+            restrict $ n ! name_uniq .== text uniq
+            return (n ! name_file :*: n ! name_start_row :*: n ! name_start_col :*: n ! name_end_row :*: n ! name_end_col )
+          
+          clash <- query $ distinct $ do
+            occ <- select names
+            sc <- select scopes
+            sco <- select scopes
+            snm <- select scopeNames
+            snmo <- select scopeNames
+            restrict $ sc ! scope_id .== snm ! scope_name_id -- snm is visible in sc
+            restrict $ sco ! scope_id .== snmo ! scope_name_id -- snmo is visible in sco
+            let nameInScope occ sc = do
+                  restrict $ (sc ! scope_start_row .< occ ! name_start_row 
+                                .|| sc ! scope_start_row .== occ ! name_start_row .&& sc ! scope_start_col .<= occ ! name_start_col)
+                  restrict $ (occ ! name_end_row .< sc ! scope_end_row
+                                .|| occ ! name_end_row .== sc ! scope_end_row .&& occ ! name_end_col .<= sc ! scope_end_col)
+                isOuterScope sc sco  = do
+                  restrict $ sco ! scope_start_row .< sc ! scope_start_row 
+                               .|| sco ! scope_start_row .== sc ! scope_start_row .&& sco ! scope_start_col .<= sc ! scope_start_col
+                  restrict $ sc ! scope_end_row .< sco ! scope_end_row
+                               .|| sc ! scope_end_row .== sco ! scope_end_row .&& sc ! scope_end_col .<= sco ! scope_end_col
+            nameInScope occ sc
+            nameInScope occ sco
+            isOuterScope sc sco
 
-          let rewrites = map (map fromSql) res
-              conflicts = map (map fromSql) clash
-          putStrLn $ show (rewrites :: [[Int]])
-          putStrLn $ show (conflicts :: [[Int]])
+            -- the name found is the result of renaming, while the renamed is in scope  (and the name's definition is not closer to usage)
+            restrict $ occ ! name_namespace .== text namespace .&& occ ! name_str .== text (pack newName) .&& snm ! scope_uniq .== text uniq 
+                         .&& snmo ! scope_uniq .== occ ! name_uniq
+            -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming (and the renamed id's definition is not closer to usage)
+                        .|| occ ! name_uniq .== text uniq .&& snm ! scope_name .== text (pack newName)
+                             .&& snmo ! scope_uniq .== text uniq
+            return ( occ ! name_start_row :*: occ ! name_start_col )
+                          
+              -- conflicts = map (map fromSql) clash
+          liftIO $ putStrLn $ show uniq
+          liftIO $ putStrLn $ show rewritten
+          liftIO $ putStrLn $ show clash
 
-readSpan :: String -> (String, String, String, String)
-readSpan sp = case splitOneOf "-:" sp of [stRow, stCol, endRow, endCol] -> (stRow, stCol, endRow, endCol)
-                                         [row, col] -> (row, col, row, col)
+readSpan :: String -> (Int, Int, Int, Int)
+readSpan sp = case splitOneOf "-:" sp of [stRow, stCol, endRow, endCol] -> (read stRow, read stCol, read endRow, read endCol)
+                                         [row, col] -> (read row, read col, read row, read col)
                                          _ -> error $ "Cannot read span: " ++ sp
