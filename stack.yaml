@@ -1,0 +1,24 @@
+resolver: lts-10.0
+system-ghc: true
+
+packages:
+  - export
+  - refactor
+  - core
+  - location:
+      git: https://github.com/tathougies/beam.git
+      commit: c3eda7726edbb17176f29efa153e260dd79a5be6
+    extra-dep: true
+    subdirs:
+      - beam-core
+      - beam-migrate
+      - beam-sqlite
+
+extra-deps:
+  - HDBC-sqlite3-2.3.3.1
+
+extra-include-dirs:
+  - C:\Users\nboldi\Desktop\heed\sqlite-tools-win32-x86-3210000\sqlite-amalgamation-3210000
+
+extra-lib-dirs:
+  - C:\Users\nboldi\Desktop\heed\sqlite-tools-win32-x86-3210000
