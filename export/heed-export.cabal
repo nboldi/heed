@@ -1,0 +1,47 @@
+name:                heed-export
+version:             0.1.0.0
+-- synopsis:            
+-- description:         
+license:             BSD3
+license-file:        LICENSE
+author:              nboldi
+maintainer:          nboldi@elte.hu
+-- copyright:           
+-- category:            
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+library
+  exposed-modules: Language.Haskell.Heed.Export.Modules
+                   Language.Haskell.Heed.Export.Declarations
+                   Language.Haskell.Heed.Export.Bindings
+                   Language.Haskell.Heed.Export.Expressions
+                   Language.Haskell.Heed.Export.Patterns
+                   Language.Haskell.Heed.Export.Names
+                   Language.Haskell.Heed.Export.Lexical
+                   Language.Haskell.Heed.Export.Utilities
+  build-depends:   base >=4.10 && <4.11
+                 , ghc
+                 , ghc-paths
+                 , mtl
+                 , selda
+                 , containers
+                 , heed-core
+                 , text
+  default-language:    Haskell2010
+  
+executable heed-export
+  main-is:             Main.hs
+  build-depends:       base >=4.10 && <4.11
+                     , ghc
+                     , ghc-paths
+                     , mtl
+                     , selda
+                     , selda-sqlite
+                     , containers
+                     , heed-core
+                     , text
+                     , heed-export
+  hs-source-dirs: exe
+  default-language: Haskell2010
