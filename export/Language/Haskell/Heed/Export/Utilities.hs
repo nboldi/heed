@@ -27,9 +27,11 @@ initExportState exportSyntax mod = ExportState Nothing exportSyntax mod False un
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
 
-class HsHasName n => HsName n where
-  trfName :: Located n -> TrfType ()
-  trfNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
+class (HasOccName n, HsHasName n) => HsName n where
+  exportName :: Located n -> TrfType ()
+  exportNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
+  exportFieldOccName :: Located (FieldOcc n) -> TrfType ()
+
 
 goInto :: Maybe RowID -> String -> TrfType a -> TrfType a
 goInto (Just id) str = local (\s -> s { parentData = Just (id, str) })
