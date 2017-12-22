@@ -19,7 +19,10 @@ library
                    Language.Haskell.Heed.Export.Expressions
                    Language.Haskell.Heed.Export.Patterns
                    Language.Haskell.Heed.Export.Names
+                   Language.Haskell.Heed.Export.Literal
                    Language.Haskell.Heed.Export.Lexical
+                   Language.Haskell.Heed.Export.Types
+                   Language.Haskell.Heed.Export.Templates
                    Language.Haskell.Heed.Export.Utilities
   build-depends:   base >=4.10 && <4.11
                  , ghc

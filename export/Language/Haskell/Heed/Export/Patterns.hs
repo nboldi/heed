@@ -1,14 +1,20 @@
 -- TODO: force completeness with  {-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-}
+{-# LANGUAGE ViewPatterns #-}
 module Language.Haskell.Heed.Export.Patterns where
 
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Expressions
 import Language.Haskell.Heed.Export.Names
+import Language.Haskell.Heed.Export.Literals
+import Language.Haskell.Heed.Export.Templates
+import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
 
 import HsPat
 import BasicTypes as GHC (Boxity(..))
 import SrcLoc
 import HsTypes
+import HsExpr
+import HsLit
 
 exportPattern :: HsName n => Located (Pat n) -> TrfType ()
 exportPattern (L l (VarPat name)) = export "Pattern" "Variable" l [ "pattern_name" .-> defining (exportName name) ]
@@ -35,25 +41,21 @@ exportPattern (L l (ConPatIn name (InfixCon left right)))
 exportPattern (L l (ViewPat expr pat _))
   = export "Pattern" "View" l [ "expr" .-> exportExpression expr
                               , "pattern" .-> exportPattern pat ]
--- trfPattern (L l (SplicePat qq@(HsQuasiQuote {}))) = AST.UQuasiQuotePat <$> annContNoSema (trfQuasiQuotation' qq)
--- trfPattern (L l (SplicePat splice)) = AST.USplicePat <$> trfSplice splice
-
--- trfPattern (L l (LitPat lit)) = AST.ULitPat <$> annCont (pure $ RealLiteralInfo (monoLiteralType lit)) (trfLiteral' lit)
--- trfPattern (L l (SigPatIn pat (hsib_body . hswc_body -> typ))) = AST.UTypeSigPat <$> trfPattern pat <*> trfType typ
--- trfPattern (L l (NPat (ol_val . unLoc -> lit) _ _ _)) = AST.ULitPat <$> annCont (asks contRange >>= pure . PreLiteralInfo) (trfOverloadedLit lit)
--- trfPattern (L l (NPlusKPat id (L l lit) _ _ _ _)) = AST.UNPlusKPat <$> define (trfName id) <*> annLoc (asks contRange >>= pure . PreLiteralInfo) (pure l) (trfOverloadedLit (ol_val lit))
--- trfPattern (L l (CoPat _ pat _)) = trfPattern' pat -- coercion pattern introduced by GHC
--- trfPattern (L l (SumPat pat tag arity _))
---   = do sepsBefore <- focusBeforeLoc (srcSpanStart (getLoc pat)) (eachTokenLoc (AnnOpen : replicate (tag - 1) AnnVbar))
---        sepsAfter <- focusAfterLoc (srcSpanEnd (getLoc pat)) (eachTokenLoc (replicate (arity - tag) AnnVbar))
---        let locsBefore = map srcSpanEnd $ init sepsBefore
---            locsAfter = map srcSpanEnd sepsAfter
---        AST.UUnboxedSumPat <$> makeList " | " (after AnnOpen) (mapM makePlaceholder locsBefore)
---                           <*> trfPattern pat
---                           <*> makeList " | " (before AnnClose) (mapM makePlaceholder locsAfter)
---   where makePlaceholder l = annLocNoSema (pure (srcLocSpan l)) (pure AST.UUnboxedSumPlaceHolder)
-
--- trfPattern p = unhandledElement "pattern" p
+exportPattern (L l (SplicePat qq@(HsQuasiQuote {})))
+  = export "Pattern" "QuasiQuotation" l [ "quote" .-> exportQuasiQuotation (L l qq) ]
+exportPattern (L l (SplicePat splice))
+  = export "Pattern" "Splice" l [ "splice" .-> exportSplice (L l splice) ]
+exportPattern (L l (LitPat lit)) = export "Pattern" "Literal" l [ "literal" .-> exportMonoLiteral (L l lit) ]
+exportPattern (L l (SigPatIn pat (hsib_body . hswc_body -> typ))) 
+  = export "Pattern" "Typed" l [ "pattern" .-> exportPattern pat 
+                               , "type" .-> exportType typ ]
+exportPattern (L l (NPat (fmap ol_val -> lit) _ _ _)) = export "Pattern" "Literal" l [ "literal" .-> exportPolyLiteral lit ]
+exportPattern (L l (NPlusKPat id (fmap ol_val -> lit) _ _ _ _)) 
+  = export "Pattern" "Literal" l [ "name" .-> exportName id
+                                 , "literal" .-> exportPolyLiteral lit ]
+exportPattern (L l (CoPat _ pat _)) = exportPattern (L l pat) -- coercion pattern introduced by GHC
+exportPattern (L l (SumPat pat _ _ _))
+  = export "Pattern" "Sum" l [ "actual_pattern" .-> exportPattern pat ]
 
 exportPatternField :: HsName n => Located (HsRecField n (LPat n)) -> TrfType ()
 exportPatternField (L l (HsRecField id arg False))
