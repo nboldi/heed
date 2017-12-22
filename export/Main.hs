@@ -48,20 +48,14 @@ example doExport =
             tokenKeys = Map.assocs ghcTokens
         t <- liftGhc $ typecheckModule p
         
-        -- cleanDatabase
         when doExport $ do
-          deleteFrom_ tokens (const true)
-          deleteFrom_ comments (const true)
-          deleteFrom_ nodes (const true)
-          deleteFrom_ names (const true)
-          deleteFrom_ scopes (const true)
-          deleteFrom_ scopeNames (const true)
-          
+          cleanDatabase
+
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
-          
-          flip runReaderT (initExportState True) $ trfModule $ parsedSource p
-          case renamedSource t of Just rs -> flip runReaderT (initExportState False) $ trfRnModule rs
+          let es = initExportState True (ms_mod modSum)
+          flip runReaderT es $ trfModule $ parsedSource p
+          case renamedSource t of Just rs -> flip runReaderT (es {exportSyntax = False}) $ trfRnModule rs
 
 cleanDatabase :: SeldaT Ghc ()
 cleanDatabase = do
@@ -107,10 +101,11 @@ categorizeComment (AnnBlockComment str) = ("AnnBlockComment", str)
 
 data ExportState = ExportState { parentData :: Maybe (SrcSpan, String) 
                                , exportSyntax :: Bool
+                               , compiledModule :: Module
                                }
                                
-initExportState :: Bool -> ExportState
-initExportState exportSyntax = ExportState Nothing exportSyntax
+initExportState :: Bool -> Module -> ExportState
+initExportState exportSyntax mod = ExportState Nothing exportSyntax mod
 
 goInto :: SrcSpan -> String -> TrfType a -> TrfType a
 goInto sp str = local (\s -> s { parentData = Just (sp, str) })
@@ -198,14 +193,17 @@ writeInsert' typ ctor loc = do
 
 writeName :: SrcSpan -> Name -> TrfType ()
 writeName loc name = do
+  cm <- asks compiledModule 
   let (file, start_row, start_col, end_row, end_col) = spanData loc
       (d_file, d_start_row, d_start_col, d_end_row, d_end_col) = spanData (nameSrcSpan name)
-      uniq = nameUnique name
+      uniq = maybe ("local." ++ showSDocUnsafe (pprModule cm) ++ "." ++ show (nameUnique name))
+                   ((++ ("."++nameStr)) . showSDocUnsafe . pprModule) 
+                   (nameModule_maybe name)
       namespace = occNameSpace $ nameOccName name
       nameStr = occNameString $ nameOccName name
   lift $ insert_ names [ pack file :*: start_row :*: start_col :*: end_row :*: end_col
                            :*: Just (pack d_file) :*: Just d_start_row :*: Just d_start_col :*: Just d_end_row :*: Just d_end_col
-                           :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack (show uniq) ]
+                           :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq ]
 
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
 spanData sp = case sp of RealSrcSpan rsp -> ( unpackFS (srcSpanFile rsp)
