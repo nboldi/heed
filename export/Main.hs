@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, AllowAmbiguousTypes, TypeApplications, TypeSynonymInstances, FlexibleInstances, BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables, AllowAmbiguousTypes, TypeApplications, TypeSynonymInstances, FlexibleInstances, BangPatterns, OverloadedStrings #-}
 module Main where
 
 import Control.Monad.State
@@ -11,7 +11,7 @@ import Data.Text (pack)
 import System.Environment
 
 import GHC
-import Outputable
+import Outputable (showSDocUnsafe, ppr)
 import SrcLoc
 import Bag
 import FastString
@@ -34,23 +34,22 @@ modName = "A"
 
 example doExport = 
   runGhc (Just libdir) $ 
-    withSQLite "haskell.db" $ 
-      transaction $ do
-        dflags <- liftGhc getSessionDynFlags
-        void $ liftGhc $ setSessionDynFlags
-          $ flip gopt_set Opt_KeepRawTokenStream dflags
-        target <- liftGhc $ guessTarget fileName Nothing
-        liftGhc $ setTargets [target]
-        liftGhc $ load LoadAllTargets
-        modSum <- liftGhc $ getModSummary $ mkModuleName modName
-        p <- liftGhc $ parseModule modSum
-        let (ghcTokens, ghcComments) = pm_annotations $ p
-            tokenKeys = Map.assocs ghcTokens
-        t <- liftGhc $ typecheckModule p
-        
-        when doExport $ do
-          cleanDatabase
-
+    withSQLite "haskell.db" $ do
+      dflags <- liftGhc getSessionDynFlags
+      void $ liftGhc $ setSessionDynFlags
+        $ flip gopt_set Opt_KeepRawTokenStream dflags
+      target <- liftGhc $ guessTarget fileName Nothing
+      liftGhc $ setTargets [target]
+      liftGhc $ load LoadAllTargets
+      modSum <- liftGhc $ getModSummary $ mkModuleName modName
+      p <- liftGhc $ parseModule modSum
+      let (ghcTokens, ghcComments) = pm_annotations $ p
+          tokenKeys = Map.assocs ghcTokens
+      t <- liftGhc $ typecheckModule p
+      
+      when doExport $ do
+        cleanDatabase
+        transaction $ do
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
           let es = initExportState True (ms_mod modSum)
@@ -58,19 +57,21 @@ example doExport =
           case renamedSource t of Just rs -> flip runReaderT (es {exportSyntax = False}) $ trfRnModule rs
 
 cleanDatabase :: SeldaT Ghc ()
-cleanDatabase = do
+cleanDatabase = withForeignCheckTurnedOff $ do
    tryDropTable tokens
    createTable tokens
+   
    tryDropTable comments
    createTable comments
+   
    tryDropTable nodes
    createTable nodes
+   
    tryDropTable names
    createTable names
+   
    tryDropTable scopes
    createTable scopes
-   tryDropTable scopeNames
-   createTable scopeNames
 
 insertTokens :: [((SrcSpan, AnnKeywordId), [SrcSpan])] -> SeldaT Ghc ()
 insertTokens ghcTokens = do
@@ -99,16 +100,15 @@ categorizeComment (AnnDocOptions str) = ("AnnDocOptions", str)
 categorizeComment (AnnLineComment str) = ("AnnLineComment", str)
 categorizeComment (AnnBlockComment str) = ("AnnBlockComment", str)
 
-data ExportState = ExportState { parentData :: Maybe (SrcSpan, String) 
+data ExportState = ExportState { parentData :: Maybe (RowID, String) 
                                , exportSyntax :: Bool
                                , compiledModule :: Module
+                               , isDefining :: Bool
+                               , scope :: RowID
                                }
                                
 initExportState :: Bool -> Module -> ExportState
-initExportState exportSyntax mod = ExportState Nothing exportSyntax mod
-
-goInto :: SrcSpan -> String -> TrfType a -> TrfType a
-goInto sp str = local (\s -> s { parentData = Just (sp, str) })
+initExportState exportSyntax mod = ExportState Nothing exportSyntax mod False undefined
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
 
@@ -117,93 +117,116 @@ class HsHasName n => HsName n where
   trfNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
 
 instance HsName RdrName where
-  trfName (L l _) = writeInsert "Name" "Name" l
+  trfName (L l _) = void $ writeInsert "Name" "Name" l
   trfNameOrRdrName = trfName
 
 instance HsName Name where
-  trfName (L l n) = do writeInsert "Name" "Name" l
-                       writeName l n
+  trfName (L l n) = writeName l n
   trfNameOrRdrName = trfName
 
 trfRnModule :: HsName n => (HsGroup n, [LImportDecl n], Maybe [LIE n], Maybe LHsDocString) -> TrfType ()
 trfRnModule (gr,_,_,_) = do
   let binds = case hs_valds gr of ValBindsOut bindGroups _ -> unionManyBags (map snd bindGroups)
-  writeInsert "Module" "Module" noSrcSpan
-  addToScope (combineLocated $ bagToList binds) (bagToList binds)
-  goInto noSrcSpan "mod_decls" $ mapM_ trfBind (bagToList binds)
+  id <- writeInsert "Module" "Module" noSrcSpan
+  addToScope (combineLocated $ bagToList binds)
+    $ goInto id "mod_decls" $ mapM_ trfBind (bagToList binds)
 
 trfModule :: HsName n => Located (HsModule n) -> TrfType ()
 trfModule (L l (HsModule _ _ _ decls _ _)) = do
-  writeInsert "Module" "Module" l
-  goInto noSrcSpan "mod_decls" $ mapM_ trfDecl decls
+  id <- writeInsert "Module" "Module" l
+  goInto id "mod_decls" $ mapM_ trfDecl decls
 
 trfDecl :: HsName n => Located (HsDecl n) -> TrfType ()
 trfDecl (L l (ValD bind)) = do 
-  writeInsert "Decl" "Bind" l
-  goInto l "decl_bind" $ trfBind (L l bind)
+  id <- writeInsert "Decl" "Bind" l
+  goInto id "decl_bind" $ trfBind (L l bind)
 
 trfBind :: HsName n => Located (HsBind n) -> TrfType ()
 trfBind (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _)) = do
-  writeInsert "Bind" "Fun" l
-  goInto l "bind_matches" $ mapM_ trfMatch matches
+  id <- writeInsert "Bind" "Fun" l
+  goInto id "bind_matches" $ mapM_ trfMatch matches
 
 trfMatch :: forall n . HsName n => Located (Match n (LHsExpr n)) -> TrfType ()
 trfMatch (L l (Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
-  writeInsert "Match" "Match" l
-  goInto l "match_name" $ trfNameOrRdrName @n (mc_fun name)
-  goInto l "match_pats" $ mapM_ trfPat pats
-  addToScope (combineLocated pats) pats
-  goInto l "match_rhss" $ mapM_ trfRhss rhss
+  id <- writeInsert "Match" "Match" l
+  defining $ goInto id "match_name" $ trfNameOrRdrName @n (mc_fun name)
+  addToScope (combineLocated pats) $ do
+   goInto id "match_pats" $ mapM_ trfPat pats
+   goInto id "match_rhss" $ mapM_ trfRhss rhss
 
 trfRhss :: HsName n => Located (GRHS n (LHsExpr n)) -> TrfType ()
 trfRhss (L l (GRHS [] body)) = do
-  writeInsert "Rhs" "Unguarded" l
-  goInto l "rhs_body" $ trfExpr body
+  id <- writeInsert "Rhs" "Unguarded" l
+  goInto id "rhs_body" $ trfExpr body
 
 trfPat :: HsName n => Located (Pat n) -> TrfType ()
 trfPat (L l (VarPat name)) = do
-  writeInsert "Pattern" "Variable" l
-  goInto l "pat_name" $ trfName name
+  id <- writeInsert "Pattern" "Variable" l
+  defining $ goInto id "pat_name" $ trfName name
 
 trfExpr :: HsName n => Located (HsExpr n) -> TrfType ()
 trfExpr (L l (OpApp e1 (L _ (HsVar op)) _ e2)) = do
-  writeInsert "Expr" "InfixApp" l
-  goInto l "expr_lhs" $ trfExpr e1
-  goInto l "expr_op" $ trfName op
-  goInto l "expr_rhs" $ trfExpr e2
+  id <- writeInsert "Expr" "InfixApp" l
+  goInto id "expr_lhs" $ trfExpr e1
+  goInto id "expr_op" $ trfName op
+  goInto id "expr_rhs" $ trfExpr e2
 trfExpr (L l (HsVar name)) = do
-  writeInsert "Expr" "Var" l
-  goInto l "expr_name" $ trfName name
+  id <- writeInsert "Expr" "Var" l
+  goInto id "expr_name" $ trfName name
 
 ----------------------------------------------------------------------
 
-writeInsert :: String -> String -> SrcSpan -> TrfType ()
+goInto :: Maybe RowID -> String -> TrfType a -> TrfType a
+goInto (Just id) str = local (\s -> s { parentData = Just (id, str) })
+goInto Nothing _ = id
+
+defining :: TrfType a -> TrfType a
+defining = local $ \s -> s { isDefining = True }
+
+writeInsert :: String -> String -> SrcSpan -> TrfType (Maybe RowID)
 writeInsert typ ctor loc = do
   expSyntax <- asks exportSyntax
-  when expSyntax (writeInsert' typ ctor loc)
+  if expSyntax then Just <$> writeInsert' typ ctor loc
+               else return Nothing
 
-writeInsert' :: String -> String -> SrcSpan -> TrfType ()
+writeInsert' :: String -> String -> SrcSpan -> TrfType RowID
 writeInsert' typ ctor loc = do
   parentRef <- asks parentData
-  let ((_, p_st_r, p_st_c, p_nd_r, p_nd_c), p_hndl) 
-        = case parentRef of Just (parentSpan, parentHandle) -> (spanData parentSpan, Just parentHandle)
-                            Nothing -> (spanData noSrcSpan, Nothing)
-      (file, start_row, start_col, end_row, end_col) = spanData loc
-  lift $ insert_ nodes [ pack typ :*: pack ctor :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col :*: fmap pack p_hndl ]
+  let (file, start_row, start_col, end_row, end_col) = spanData loc
+  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: pack typ :*: pack ctor :*: pack file 
+                                :*: start_row :*: start_col :*: end_row :*: end_col 
+                                :*: fmap (pack . snd) parentRef ]
+
+lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
+lookupNameNode = prepared $ \file start_row start_col -> do 
+  n <- select nodes
+  restrict $ file .== n ! node_file 
+              .&& start_row .== n ! node_start_row
+              .&& start_col .== n ! node_start_col
+              .&& text "Name" .== n ! node_type
+  return (n ! node_id)
 
 writeName :: SrcSpan -> Name -> TrfType ()
-writeName loc name = do
+writeName sp name = do
   cm <- asks compiledModule 
-  let (file, start_row, start_col, end_row, end_col) = spanData loc
-      (d_file, d_start_row, d_start_col, d_end_row, d_end_col) = spanData (nameSrcSpan name)
+  sc <- asks scope 
+  defining <- asks isDefining 
+  let (file, start_row, start_col, _, _) = spanData sp
+  [nodeId] <- lift $ lookupNameNode (pack file) start_row start_col
+    
+  let (d_file, d_start_row, d_start_col, d_end_row, d_end_col) 
+        = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
+                                                      , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
+                                                      , Just (srcSpanEndCol rsp) )
+                                   _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
+                               
       uniq = maybe ("local." ++ showSDocUnsafe (pprModule cm) ++ "." ++ show (nameUnique name))
                    ((++ ("."++nameStr)) . showSDocUnsafe . pprModule) 
                    (nameModule_maybe name)
       namespace = occNameSpace $ nameOccName name
       nameStr = occNameString $ nameOccName name
-  lift $ insert_ names [ pack file :*: start_row :*: start_col :*: end_row :*: end_col
-                           :*: Just (pack d_file) :*: Just d_start_row :*: Just d_start_col :*: Just d_end_row :*: Just d_end_col
-                           :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq ]
+  lift $ insert_ names [ Just nodeId :*: sc :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
+                           :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
 
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
 spanData sp = case sp of RealSrcSpan rsp -> ( unpackFS (srcSpanFile rsp)
@@ -218,21 +241,16 @@ combineLocated = foldl combineSrcSpans noSrcSpan . map getLoc
 
 -------------------------------------------------------------------------
 
-addToScope :: HsHasName n => SrcSpan -> n -> TrfType ()
-addToScope sp named = do
+addToScope :: SrcSpan -> TrfType () -> TrfType ()
+addToScope sp act = do
   expSyntax <- asks exportSyntax
-  when (not expSyntax) (addToScope' sp named)
+  if expSyntax then act else doAddToScope sp act
 
-addToScope' :: HsHasName n => SrcSpan -> n -> TrfType ()
-addToScope' sp named = do
+doAddToScope :: SrcSpan -> TrfType () -> TrfType ()
+doAddToScope sp act = do
   let (file, start_row, start_col, end_row, end_col) = spanData sp
   newScope <- lift $ insertWithPK scopes [ def :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col ]
-  let newNames = map (\n -> let name = pack (occNameString (nameOccName n))
-                                namespace = pack (showSDocUnsafe (pprNameSpace $ occNameSpace $ nameOccName n))
-                                uniq = pack (show $ nameUnique n)
-                             in newScope :*: name :*: namespace :*: uniq
-                     ) (hsGetNames named)
-  lift $ insert_ scopeNames newNames 
+  local (\s -> s { scope = newScope}) act
 
 class HsHasName a where
   hsGetNames :: a -> [GHC.Name]

@@ -14,6 +14,8 @@ import Control.Monad.Catch
 import GHC
 import GhcMonad
 
+import qualified Database.Selda.Backend as Backend -- just for disabling foreign keys to drop tables
+
 instance MonadThrow Ghc where
     throwM  = liftIO . throwIO
 
@@ -32,10 +34,23 @@ instance MonadMask Ghc where
 liftGhc :: Ghc a -> SeldaT Ghc a
 liftGhc = lift
 
+withForeignCheckTurnedOff :: (MonadMask m, MonadIO m, MonadThrow m) => SeldaT m a -> SeldaT m a
+withForeignCheckTurnedOff act = do
+   backend <- Backend.seldaBackend
+   (resCode, _) <- liftIO $ Backend.runStmt backend (pack "PRAGMA foreign_keys = OFF") [] -- TODO: something different for postgre
+   when (resCode /= 0) (throwM $ Backend.SqlError "withForeignCheckTurnedOff: Switching foreign keys off was not successful.") 
+   res <- act
+   (resCode, _) <- liftIO $ Backend.runStmt backend (pack "PRAGMA foreign_keys = ON") []
+   when (resCode /= 0) (throwM $ Backend.SqlError "withForeignCheckTurnedOff: Switching foreign keys back on was not successful.") 
+   return res
+  
+
 -- * Syntax
 
-nodes :: Table (Text :*: Text :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Text)
-nodes = table "nodes" $ required "node_type" 
+nodes :: Table (RowID :*: Maybe RowID :*: Text :*: Text :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Text)
+nodes = table "nodes" $ autoPrimary "node_id" 
+                          :*: optional "parent_id" -- `fk` (nodes, node_id)
+                          :*: required "node_type"
                           :*: required "ctor" 
                           :*: required "file"
                           :*: required "start_row"
@@ -43,36 +58,34 @@ nodes = table "nodes" $ required "node_type"
                           :*: required "end_row"
                           :*: required "end_col"
                           :*: optional "parent_handle"
-( node_type 
+( node_id 
+    :*: node_parent 
+    :*: node_type 
     :*: node_ctor 
     :*: node_file 
     :*: node_start_row 
     :*: node_start_col 
     :*: node_end_row 
     :*: node_end_col 
-    :*: node_parent_handle ) = selectors nodes
+    :*: parent_handle ) = selectors nodes
 
 -- * Semantic information
 
-names :: Table ( Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Text :*: Text :*: Text )
-names = table "name_infos" $ required "file"
-                               :*: required "start_row"
-                               :*: required "start_col"
-                               :*: required "end_row"
-                               :*: required "end_col"
-                               :*: optional "def_file"
-                               :*: optional "def_start_row"
-                               :*: optional "def_start_col"
-                               :*: optional "def_end_row"
-                               :*: optional "def_end_col"
-                               :*: required "namespace" 
-                               :*: required "name"
-                               :*: required "uniq"
-( name_file 
-    :*: name_start_row 
-    :*: name_start_col 
-    :*: name_end_row 
-    :*: name_end_col
+names :: Table ( Maybe RowID :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int 
+                   :*: Text :*: Text :*: Text :*: Bool )
+names = table "names" $ optional "name_node" -- `fk` (nodes, node_id)
+                          :*: required "name_scope" `fk` (scopes, scope_id) -- the scope in which the name is bound
+                          :*: optional "def_file"
+                          :*: optional "def_start_row"
+                          :*: optional "def_start_col"
+                          :*: optional "def_end_row"
+                          :*: optional "def_end_col"
+                          :*: required "name_namespace" 
+                          :*: required "name_str"
+                          :*: required "name_uniq"
+                          :*: required "name_defining"
+( name_node
+    :*: name_scope
     :*: def_file
     :*: def_start_row
     :*: def_start_col
@@ -80,7 +93,8 @@ names = table "name_infos" $ required "file"
     :*: def_end_col
     :*: name_namespace
     :*: name_str
-    :*: name_uniq ) = selectors names
+    :*: name_uniq
+    :*: name_defining ) = selectors names
 
 scopes :: Table ( RowID :*: Text :*: Int :*: Int :*: Int :*: Int )
 scopes = table "scopes" $ autoPrimary "scope_id"
@@ -95,17 +109,6 @@ scopes = table "scopes" $ autoPrimary "scope_id"
     :*: scope_start_col
     :*: scope_end_row 
     :*: scope_end_col ) = selectors scopes
-
-
-scopeNames :: Table ( RowID :*: Text :*: Text :*: Text )
-scopeNames = table "scope_names" $ required "scope_id"
-                                    :*: required "name"
-                                    :*: required "namespace" 
-                                    :*: required "uniq"
-( scope_name_id 
-    :*: scope_name
-    :*: scope_namespace
-    :*: scope_uniq ) = selectors scopeNames
 
 -- * Lexical information
 
