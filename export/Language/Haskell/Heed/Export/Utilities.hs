@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Language.Haskell.Heed.Export.Utilities where
@@ -10,24 +11,26 @@ import Outputable (showSDocUnsafe, ppr)
 import Name
 import SrcLoc
 
+import Control.Exception
 import Control.Monad.Reader
 import Database.Selda
 import Core
+import Data.Data
 import Data.Text (pack)
 
-data ExportState = ExportState { parentData :: Maybe (RowID, String) 
+data ExportState = ExportState { parentData :: Maybe (RowID, String)
                                , exportSyntax :: Bool
                                , compiledModule :: Module
                                , isDefining :: Bool
                                , scope :: RowID
                                }
-                               
+
 initExportState :: Bool -> Module -> ExportState
 initExportState exportSyntax mod = ExportState Nothing exportSyntax mod False undefined
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
 
-class (HasOccName n, HsHasName n) => HsName n where
+class (DataId n, HasOccName n, HsHasName n) => HsName n where
   exportName :: Located n -> TrfType ()
   exportNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
   exportFieldOccName :: Located (FieldOcc n) -> TrfType ()
@@ -50,14 +53,14 @@ writeInsert' :: String -> String -> SrcSpan -> TrfType RowID
 writeInsert' typ ctor loc = do
   parentRef <- asks parentData
   let (file, start_row, start_col, end_row, end_col) = spanData loc
-  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: pack typ :*: pack ctor :*: pack file 
-                                :*: start_row :*: start_col :*: end_row :*: end_col 
+  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: pack typ :*: pack ctor :*: pack file
+                                :*: start_row :*: start_col :*: end_row :*: end_col
                                 :*: fmap (pack . snd) parentRef ]
 
 lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
-lookupNameNode = prepared $ \file start_row start_col -> do 
+lookupNameNode = prepared $ \file start_row start_col -> do
   n <- select nodes
-  restrict $ file .== n ! node_file 
+  restrict $ file .== n ! node_file
               .&& start_row .== n ! node_start_row
               .&& start_col .== n ! node_start_col
               .&& text "Name" .== n ! node_type
@@ -65,20 +68,20 @@ lookupNameNode = prepared $ \file start_row start_col -> do
 
 writeName :: SrcSpan -> Name -> TrfType ()
 writeName sp name = do
-  cm <- asks compiledModule 
-  sc <- asks scope 
-  defining <- asks isDefining 
+  cm <- asks compiledModule
+  sc <- asks scope
+  defining <- asks isDefining
   let (file, start_row, start_col, _, _) = spanData sp
   [nodeId] <- lift $ lookupNameNode (pack file) start_row start_col
-    
-  let (d_file, d_start_row, d_start_col, d_end_row, d_end_col) 
+
+  let (d_file, d_start_row, d_start_col, d_end_row, d_end_col)
         = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
                                                       , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
                                                       , Just (srcSpanEndCol rsp) )
                                    _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
-                               
+
       uniq = maybe (showSDocUnsafe (pprModule cm) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
-                   ((++ ("."++nameStr)) . showSDocUnsafe . pprModule) 
+                   ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
                    (nameModule_maybe name)
       namespace = occNameSpace $ nameOccName name
       nameStr = occNameString $ nameOccName name
@@ -111,13 +114,36 @@ doAddToScope sp act = do
 
 --------------------------------------------------------------------------
 
+-- data Node = Module
+--           | Declaration
+--           | Binding
+--           | KindSignature
+--           | Kind
+--           | Type
+--           | Pattern
+--           | Expression
+--           | Splice
+--           | QuasiQuotation
+--           | Name
+--           | Operator
+--   deriving Data
+
 export :: String -> String -> SrcSpan -> [(String, TrfType ())] -> TrfType ()
-export typ ctor loc fields = do 
+export typ ctor loc fields = do
   id <- writeInsert typ ctor loc
   mapM_ (\(acc,val) -> goInto id acc val) fields
 
 (.->) :: a -> b -> (a,b)
 a .-> b = (a,b)
+
+exportError :: Data s => s -> a
+exportError a = throw $ ExportException (dataTypeOf a) (toConstr a)
+
+data ExportException = ExportException DataType Constr deriving Show
+
+instance Exception ExportException where
+  displayException (ExportException typ ctor)
+    = "Unexpected element while exporting: " ++ show ctor ++ " of type " ++ show typ
 
 --------------------------------------------------------------------------
 

@@ -17,17 +17,17 @@ import Core
 import Language.Haskell.Heed.Export.Modules
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Lexical
- 
+
 main :: IO ()
-main = do args <- getArgs 
+main = do args <- getArgs
           case args of "no-export":_ -> example False
                        _             -> example True
 
 fileName = "A.hs"
 modName = "A"
 
-example doExport = 
-  runGhc (Just libdir) $ 
+example doExport =
+  runGhc (Just libdir) $
     withSQLite "haskell.db" $ do
       dflags <- liftGhc getSessionDynFlags
       void $ liftGhc $ setSessionDynFlags
@@ -40,30 +40,30 @@ example doExport =
       let (ghcTokens, ghcComments) = pm_annotations $ p
           tokenKeys = Map.assocs ghcTokens
       t <- liftGhc $ typecheckModule p
-      
+
       when doExport $ do
         cleanDatabase
         transaction $ do
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
           let es = initExportState True (ms_mod modSum)
-          flip runReaderT es $ trfModule $ parsedSource p
-          case renamedSource t of Just rs -> flip runReaderT (es {exportSyntax = False}) $ trfRnModule rs
+          flip runReaderT es $ exportModule $ parsedSource p
+          case renamedSource t of Just rs -> flip runReaderT (es {exportSyntax = False}) $ exportRnModule rs
 
 cleanDatabase :: SeldaT Ghc ()
 cleanDatabase = withForeignCheckTurnedOff $ do
    tryDropTable tokens
    createTable tokens
-   
+
    tryDropTable comments
    createTable comments
-   
+
    tryDropTable nodes
    createTable nodes
-   
+
    tryDropTable names
    createTable names
-   
+
    tryDropTable scopes
    createTable scopes
 
