@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,7 +19,7 @@ import Core
 import Data.Data
 import Data.Text (pack)
 
-data ExportState = ExportState { parentData :: Maybe (RowID, String)
+data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , exportSyntax :: Bool
                                , compiledModule :: Module
                                , isDefining :: Bool
@@ -36,26 +37,29 @@ class (DataId n, HasOccName n, HsHasName n) => HsName n where
   exportFieldOccName :: Located (FieldOcc n) -> TrfType ()
 
 
-goInto :: Maybe RowID -> String -> TrfType a -> TrfType a
-goInto (Just id) str = local (\s -> s { parentData = Just (id, str) })
+goInto :: Maybe RowID -> Int -> TrfType a -> TrfType a
+goInto (Just id) ref = local (\s -> s { parentData = Just (id, ref) })
 goInto Nothing _ = id
 
 defining :: TrfType a -> TrfType a
 defining = local $ \s -> s { isDefining = True }
 
-writeInsert :: String -> String -> SrcSpan -> TrfType (Maybe RowID)
+writeInsert :: Data s => Node -> s -> SrcSpan -> TrfType (Maybe RowID)
 writeInsert typ ctor loc = do
   expSyntax <- asks exportSyntax
   if expSyntax then Just <$> writeInsert' typ ctor loc
                else return Nothing
 
-writeInsert' :: String -> String -> SrcSpan -> TrfType RowID
+writeInsert' :: Data s => Node -> s -> SrcSpan -> TrfType RowID
 writeInsert' typ ctor loc = do
   parentRef <- asks parentData
   let (file, start_row, start_col, end_row, end_col) = spanData loc
-  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: pack typ :*: pack ctor :*: pack file
+  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: constrIndex (toConstr typ)
+                                :*: constrIndex (toConstr ctor) :*: pack file
                                 :*: start_row :*: start_col :*: end_row :*: end_col
-                                :*: fmap (pack . snd) parentRef ]
+                                :*: fmap snd parentRef ]
+
+
 
 lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
 lookupNameNode = prepared $ \file start_row start_col -> do
@@ -63,7 +67,7 @@ lookupNameNode = prepared $ \file start_row start_col -> do
   restrict $ file .== n ! node_file
               .&& start_row .== n ! node_start_row
               .&& start_col .== n ! node_start_col
-              .&& text "Name" .== n ! node_type
+              .&& int (constrIndex $ toConstr Name) .== n ! node_type
   return (n ! node_id)
 
 writeName :: SrcSpan -> Name -> TrfType ()
@@ -114,27 +118,28 @@ doAddToScope sp act = do
 
 --------------------------------------------------------------------------
 
--- data Node = Module
---           | Declaration
---           | Binding
---           | KindSignature
---           | Kind
---           | Type
---           | Pattern
---           | Expression
---           | Splice
---           | QuasiQuotation
---           | Name
---           | Operator
---   deriving Data
+data Node = Module
+          | Declaration
+          | Binding
+          | KindSignature
+          | Kind
+          | Type
+          | PatternField
+          | Pattern
+          | Expression
+          | Splice
+          | QuasiQuotation
+          | Name
+          | Operator
+          | Literal
+          | Rhs
+          | Match
+  deriving Data
 
-export :: String -> String -> SrcSpan -> [(String, TrfType ())] -> TrfType ()
+export :: Data c => Node -> c -> SrcSpan -> [(TrfType ())] -> TrfType ()
 export typ ctor loc fields = do
   id <- writeInsert typ ctor loc
-  mapM_ (\(acc,val) -> goInto id acc val) fields
-
-(.->) :: a -> b -> (a,b)
-a .-> b = (a,b)
+  mapM_ (\(i,val) -> goInto id i val) (zip [1..] fields)
 
 exportError :: Data s => s -> a
 exportError a = throw $ ExportException (dataTypeOf a) (toConstr a)

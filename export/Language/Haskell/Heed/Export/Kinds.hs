@@ -1,33 +1,34 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ViewPatterns #-}
 module Language.Haskell.Heed.Export.Kinds where
 
 import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Utilities
 
+import Data.Data
 import HsTypes
 import RdrName
 import Name
 import SrcLoc
 
+data KindSignature = KS deriving Data
+data Kind = Paren | Function | Application | InfixApplication deriving Data
+
 exportKindSignature :: HsName n => Maybe (LHsKind n) -> TrfType ()
 exportKindSignature (Just kind)
-  = export "KindSignature" "KindSignature" (getLoc kind) [ "kind" .-> exportKind kind ]
+  = export KindSignature KS (getLoc kind) [ exportKind kind ]
 exportKindSignature Nothing = return ()
 
 exportKind :: HsName n => LHsKind n -> TrfType ()
 -- exportKind (L l (HsTyVar _ (unLoc -> Exact n)))
 --   | isWiredInName n && occNameString (nameOccName n) == "*" = export "Kind" "StarKind" l []
 --   | isWiredInName n && occNameString (nameOccName n) == "#" = export "Kind" "UnboxKind" l []
-exportKind (L l (HsParTy kind)) = export "Kind" "Paren" l [ "inner" .-> exportKind kind ]
-exportKind (L l (HsFunTy kArg kRes)) = export "Kind" "Function" l [ "argument" .-> exportKind kArg
-                                                                  , "result" .-> exportKind kRes ]
+exportKind (L l (HsParTy kind)) = export Kind Paren l [ exportKind kind ]
+exportKind (L l (HsFunTy kArg kRes)) = export Kind Function l [ exportKind kArg, exportKind kRes ]
 exportKind (L l (HsAppTy kFun kArg))
-  = export "Kind" "Application" l [ "function" .-> exportKind kFun
-                                  , "argument" .-> exportKind kArg ]
+  = export Kind Application l [ exportKind kFun, exportKind kArg ]
 exportKind (L l (HsOpTy lhs op rhs))
-  = export "Kind" "Application" l [ "left_operand" .-> exportKind lhs
-                                  , "operator" .-> exportOperator op
-                                  , "right_operand" .-> exportKind rhs ]
+  = export Kind InfixApplication l [ exportKind lhs, exportOperator op, exportKind rhs ]
 
 
 --   trfKind'' (HsAppTy k1 k2) = AST.UAppKind <$> trfKind k1 <*> trfKind k2
