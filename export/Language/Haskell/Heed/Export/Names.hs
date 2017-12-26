@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-module Language.Haskell.Heed.Export.Names (exportOperator) where
+module Language.Haskell.Heed.Export.Names (exportOperator, exportImplicitName) where
 
-import Language.Haskell.Heed.Export.Utilities hiding (Node(..))
-import Language.Haskell.Heed.Export.Utilities (Node(Name, Operator))
+import Language.Haskell.Heed.Export.Utilities
+import Language.Haskell.Heed.Export.Schema
 
 import Control.Monad
 import RdrName
@@ -12,14 +12,8 @@ import Name (isSymOcc, occName)
 import HsTypes
 import SrcLoc
 
-data Name = Normal | Paren
-  deriving Data
-
-data Operator = NormalOp | Backtick
-  deriving Data
-
 instance HsName RdrName where
-  exportName (L l _) = void $ writeInsert Name Normal l
+  exportName (L l _) = void $ writeInsert Normal l
   exportNameOrRdrName = exportName
   exportFieldOccName (L _ (FieldOcc rdr _)) = exportName rdr
 
@@ -28,7 +22,12 @@ instance HsName GHC.Name where
   exportNameOrRdrName = exportName
   exportFieldOccName (L l (FieldOcc _ name)) = exportName (L l name)
 
+exportImplicitName :: Located HsIPName -> TrfType ()
+exportImplicitName = undefined
+
 exportOperator :: HsName n => Located n -> TrfType ()
 exportOperator (L l n)
-  | isSymOcc (occName n) = void $ writeInsert Operator NormalOp l
-  | otherwise            = void $ writeInsert Operator Backtick l
+  | isSymOcc (occName n) = void $ writeInsert NormalOp l
+  | otherwise            = void $ writeInsert Backtick l
+
+

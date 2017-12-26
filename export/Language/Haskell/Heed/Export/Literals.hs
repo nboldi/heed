@@ -6,35 +6,21 @@ import SrcLoc
 import HsLit
 
 import Language.Haskell.Heed.Export.Utilities
-
-data Literal = Character
-             | PrimitiveCharacter
-             | String
-             | PrimitiveString
-             | PrimitiveInt
-             | Word
-             | PrimitiveInt64
-             | PrimitiveWord64
-             | PrimitiveFloat
-             | PrimitiveDouble
-             | Integral
-             | Fractional
-             | OverloadedString
-  deriving Data
+import Language.Haskell.Heed.Export.Schema
 
 exportMonoLiteral :: Located HsLit -> TrfType ()
-exportMonoLiteral (L l (HsChar _ ch)) = export Literal Character l []
-exportMonoLiteral (L l (HsCharPrim _ ch)) = export Literal PrimitiveCharacter l []
-exportMonoLiteral (L l (HsString _ str)) = export Literal String l []
-exportMonoLiteral (L l (HsStringPrim _ str)) = export Literal PrimitiveString l []
-exportMonoLiteral (L l (HsIntPrim _ i)) = export Literal PrimitiveInt l []
-exportMonoLiteral (L l (HsWordPrim _ i)) = export Literal Word l []
-exportMonoLiteral (L l (HsInt64Prim _ i)) = export Literal PrimitiveInt64 l []
-exportMonoLiteral (L l (HsWord64Prim _ i)) = export Literal PrimitiveWord64 l []
-exportMonoLiteral (L l (HsFloatPrim frac)) = export Literal PrimitiveFloat l []
-exportMonoLiteral (L l (HsDoublePrim frac)) = export Literal PrimitiveDouble l []
+exportMonoLiteral (L l (HsChar _ ch)) = export Character l []
+exportMonoLiteral (L l (HsCharPrim _ ch)) = export PrimitiveCharacter l []
+exportMonoLiteral (L l (HsString _ str)) = export String l []
+exportMonoLiteral (L l (HsStringPrim _ str)) = export PrimitiveString l []
+exportMonoLiteral (L l (HsIntPrim _ i)) = export PrimitiveInt l []
+exportMonoLiteral (L l (HsWordPrim _ i)) = export Word l []
+exportMonoLiteral (L l (HsInt64Prim _ i)) = export PrimitiveInt64 l []
+exportMonoLiteral (L l (HsWord64Prim _ i)) = export PrimitiveWord64 l []
+exportMonoLiteral (L l (HsFloatPrim frac)) = export PrimitiveFloat l []
+exportMonoLiteral (L l (HsDoublePrim frac)) = export PrimitiveDouble l []
 
 exportPolyLiteral :: Located OverLitVal -> TrfType ()
-exportPolyLiteral (L l (HsIntegral _ i)) = export Literal Integral l []
-exportPolyLiteral (L l (HsFractional frac)) = export Literal Fractional l []
-exportPolyLiteral (L l (HsIsString _ str)) = export Literal OverloadedString l []
+exportPolyLiteral (L l (HsIntegral _ i)) = export Integral l []
+exportPolyLiteral (L l (HsFractional frac)) = export Fractional l []
+exportPolyLiteral (L l (HsIsString _ str)) = export OverloadedString l []

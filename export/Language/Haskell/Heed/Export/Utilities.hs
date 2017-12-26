@@ -19,6 +19,9 @@ import Core
 import Data.Data
 import Data.Text (pack)
 
+import Language.Haskell.Heed.Export.Schema (Schema(..))
+import qualified Language.Haskell.Heed.Export.Schema as Schema
+
 data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , exportSyntax :: Bool
                                , compiledModule :: Module
@@ -35,7 +38,8 @@ class (DataId n, HasOccName n, HsHasName n) => HsName n where
   exportName :: Located n -> TrfType ()
   exportNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
   exportFieldOccName :: Located (FieldOcc n) -> TrfType ()
-
+  exportAmbiguousFieldOccName :: Located (AmbiguousFieldOcc n) -> TrfType ()
+  exportAmbiguousOperator :: Located (AmbiguousFieldOcc n) -> TrfType ()
 
 goInto :: Maybe RowID -> Int -> TrfType a -> TrfType a
 goInto (Just id) ref = local (\s -> s { parentData = Just (id, ref) })
@@ -44,17 +48,17 @@ goInto Nothing _ = id
 defining :: TrfType a -> TrfType a
 defining = local $ \s -> s { isDefining = True }
 
-writeInsert :: Data s => Node -> s -> SrcSpan -> TrfType (Maybe RowID)
-writeInsert typ ctor loc = do
+writeInsert :: Schema s => s -> SrcSpan -> TrfType (Maybe RowID)
+writeInsert ctor loc = do
   expSyntax <- asks exportSyntax
-  if expSyntax then Just <$> writeInsert' typ ctor loc
+  if expSyntax then Just <$> writeInsert' ctor loc
                else return Nothing
 
-writeInsert' :: Data s => Node -> s -> SrcSpan -> TrfType RowID
-writeInsert' typ ctor loc = do
+writeInsert' :: Schema s => s -> SrcSpan -> TrfType RowID
+writeInsert' ctor loc = do
   parentRef <- asks parentData
   let (file, start_row, start_col, end_row, end_col) = spanData loc
-  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: constrIndex (toConstr typ)
+  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: typeId ctor
                                 :*: constrIndex (toConstr ctor) :*: pack file
                                 :*: start_row :*: start_col :*: end_row :*: end_col
                                 :*: fmap snd parentRef ]
@@ -67,7 +71,7 @@ lookupNameNode = prepared $ \file start_row start_col -> do
   restrict $ file .== n ! node_file
               .&& start_row .== n ! node_start_row
               .&& start_col .== n ! node_start_col
-              .&& int (constrIndex $ toConstr Name) .== n ! node_type
+              .&& int (typeId (undefined :: Schema.Name)) .== n ! node_type
   return (n ! node_id)
 
 writeName :: SrcSpan -> Name -> TrfType ()
@@ -118,27 +122,9 @@ doAddToScope sp act = do
 
 --------------------------------------------------------------------------
 
-data Node = Module
-          | Declaration
-          | Binding
-          | KindSignature
-          | Kind
-          | Type
-          | PatternField
-          | Pattern
-          | Expression
-          | Splice
-          | QuasiQuotation
-          | Name
-          | Operator
-          | Literal
-          | Rhs
-          | Match
-  deriving Data
-
-export :: Data c => Node -> c -> SrcSpan -> [(TrfType ())] -> TrfType ()
-export typ ctor loc fields = do
-  id <- writeInsert typ ctor loc
+export :: Schema c => c -> SrcSpan -> [(TrfType ())] -> TrfType ()
+export ctor loc fields = do
+  id <- writeInsert ctor loc
   mapM_ (\(i,val) -> goInto id i val) (zip [1..] fields)
 
 exportError :: Data s => s -> a
