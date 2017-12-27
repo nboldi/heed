@@ -6,12 +6,15 @@ module Language.Haskell.Heed.Export.Expressions (exportExpression) where
 import Language.Haskell.Heed.Export.Patterns
 import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Literals
+import Language.Haskell.Heed.Export.Types
+import Language.Haskell.Heed.Export.Templates
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema hiding (Literal(..), Match(..))
 
 import Data.Data (Data(..))
 import HsExpr
+import HsPat
 import HsBinds
 import HsLit
 import HsTypes
@@ -37,7 +40,7 @@ exportExpression (L l (OpApp e1 (unLoc -> HsVar op) _ e2))
   = export InfixAppE l [ exportExpression e1, exportOperator op, exportExpression e2 ]
 exportExpression (L l (OpApp e1 (L l' (HsRecFld op)) _ e2))
   = export InfixAppE l [ exportExpression e1, exportAmbiguousOperator (L l' op), exportExpression e2 ]
-exportExpression (L _ opApp@(OpApp _ (L _ op) _ _)) = exportError opApp
+exportExpression (L _ opApp@(OpApp _ (L _ op) _ _)) = exportError "operator expression" opApp
 exportExpression (L l (NegApp e _)) = export PrefixAppE l [ exportExpression e ] -- TODO: name for negative sign
 exportExpression (L l (HsPar (unLoc -> SectionL expr (unLoc -> HsVar op))))
   = export LeftSectionE l [ exportExpression expr, exportOperator op ]
@@ -63,12 +66,10 @@ exportExpression (L l (HsIf _ expr thenE elseE))
   = export IfE l [ exportExpression expr, exportExpression thenE, exportExpression elseE ]
 exportExpression (L l (HsMultiIf _ parts))
   = export MultiIfE l [ mapM_ exportCaseRhss parts ]
--- exportExpression (L l (HsLet (unLoc -> binds) expr))
---   = addToScope (combineLocated binds)
---       $ export Let l [ exportLocalBinds binds, exportExpression expr ]
+exportExpression (L l (HsLet (unLoc -> binds) expr))
+  = addToScope l $ export LetE l [ exportLocalBinds (L l binds), exportExpression expr ]
 -- exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))
 --   =
-
 
 -- trfExpr' (HsDo DoExpr (unLoc -> stmts) _) = AST.UDo <$> annLocNoSema (tokenLoc AnnDo) (pure AST.UDoKeyword)
 --                                                     <*> makeNonemptyIndentedList (trfScopedSequence trfDoStmt stmts)
@@ -83,31 +84,46 @@ exportExpression (L l (HsMultiIf _ parts))
 --   = AST.UListComp <$> trfExpr (getLastStmt stmts) <*> trfListCompStmts stmts
 -- trfExpr' (HsDo PArrComp (unLoc -> stmts) _)
 --   = AST.UParArrayComp <$> trfExpr (getLastStmt stmts) <*> trfListCompStmts stmts
--- trfExpr' (ExplicitList _ _ exprs) = AST.UList <$> trfAnnList' ", " trfExpr exprs
--- trfExpr' (ExplicitPArr _ exprs) = AST.UParArray <$> trfAnnList' ", " trfExpr exprs
--- trfExpr' (RecordCon name _ _ fields) = AST.URecCon <$> trfName name <*> trfFieldInits fields
--- trfExpr' (RecordUpd expr fields _ _ _ _) = AST.URecUpdate <$> trfExpr expr <*> trfAnnList ", " trfFieldUpdate fields
--- trfExpr' (ExprWithTySig expr typ) = AST.UTypeSig <$> trfExpr expr <*> trfType (hsib_body $ hswc_body typ)
--- trfExpr' (ArithSeq _ _ (From from)) = AST.UEnum <$> trfExpr from <*> nothing "," "" (before AnnDotdot)
---                                                                 <*> nothing "" "" (before AnnCloseS)
--- trfExpr' (ArithSeq _ _ (FromThen from step))
---   = AST.UEnum <$> trfExpr from <*> (makeJust <$> trfExpr step) <*> nothing "" "" (before AnnCloseS)
--- trfExpr' (ArithSeq _ _ (FromTo from to))
---   = AST.UEnum <$> trfExpr from <*> nothing "," "" (before AnnDotdot)
---                                <*> (makeJust <$> trfExpr to)
--- trfExpr' (ArithSeq _ _ (FromThenTo from step to))
---   = AST.UEnum <$> trfExpr from <*> (makeJust <$> trfExpr step) <*> (makeJust <$> trfExpr to)
--- trfExpr' (PArrSeq _ (FromTo from to))
---   = AST.UParArrayEnum <$> trfExpr from <*> nothing "," "" (before AnnDotdot) <*> trfExpr to
--- trfExpr' (PArrSeq _ (FromThenTo from step to))
---   = AST.UParArrayEnum <$> trfExpr from <*> (makeJust <$> trfExpr step) <*> trfExpr to
--- trfExpr' (HsBracket brack) = AST.UBracketExpr <$> annContNoSema (trfBracket' brack)
--- trfExpr' (HsSpliceE qq@(HsQuasiQuote {})) = AST.UQuasiQuoteExpr <$> annContNoSema (trfQuasiQuotation' qq)
--- trfExpr' (HsSpliceE splice) = AST.USplice <$> trfSplice splice
--- trfExpr' (HsRnBracketOut br _) = AST.UBracketExpr <$> annContNoSema (trfBracket' br)
+
+
+exportExpression (L l (ExplicitList _ _ exprs)) = export ListE l [ mapM_ exportExpression exprs ]
+exportExpression (L l (ExplicitPArr _ exprs))
+  = export ParallelArrayE l [ mapM_ exportExpression exprs ]
+exportExpression (L l (RecordCon name _ _ fields))
+  = export RecordConstructE l [ exportName name, exportFieldInits (L l fields) ]
+exportExpression (L l (RecordUpd expr fields _ _ _ _))
+  = export RecordUpdateE l [ exportExpression expr, mapM_ exportFieldUpdate fields ]
+exportExpression (L l (ExprWithTySig expr typ))
+  = export TypedE l [ exportExpression expr, exportType (hsib_body $ hswc_body typ) ]
+
+exportExpression (L l (ArithSeq _ _ (From from)))
+  = export EnumE l [ exportExpression from ]
+exportExpression (L l (ArithSeq _ _ (FromThen from step)))
+  = export EnumE l [ exportExpression from, exportExpression step ]
+exportExpression (L l (ArithSeq _ _ (FromTo from to)))
+  = export EnumE l [ exportExpression from, return (), exportExpression to ]
+exportExpression (L l (ArithSeq _ _ (FromThenTo from step to)))
+  = export EnumE l [ exportExpression from, exportExpression step, exportExpression to ]
+
+exportExpression (L l (PArrSeq _ (FromTo from to)))
+  = export ParallelArrayEnumE l [ exportExpression from, return (), exportExpression to ]
+exportExpression (L l (PArrSeq _ (FromThenTo from step to)))
+  = export ParallelArrayEnumE l [ exportExpression from, exportExpression step, exportExpression to ]
+
+exportExpression (L l (HsBracket brack)) = export BracketE l [ exportBracket (L l brack) ]
+exportExpression (L l (HsRnBracketOut br _)) = export BracketE l [ exportBracket (L l br) ]
+exportExpression (L l (HsSpliceE qq@(HsQuasiQuote {})))
+  = export QuasiQouteE l [ exportQuasiQuotation (L l qq) ]
+exportExpression (L l (HsSpliceE splice)) = export SpliceE l [ exportSplice (L l splice) ]
+
 -- trfExpr' (HsProc pat cmdTop) = AST.UProc <$> trfPattern pat <*> trfCmdTop cmdTop
--- trfExpr' (HsStatic _ expr) = AST.UStaticPtr <$> trfExpr expr
--- trfExpr' (HsAppType expr typ) = AST.UExplTypeApp <$> trfExpr expr <*> trfType (hswc_body typ)
+
+exportExpression (L l (HsStatic _ expr)) = export StaticE l [ exportExpression expr ]
+exportExpression (L l (HsAppType expr typ))
+  = export TypeApplicationE l [ exportExpression expr, exportType (hswc_body typ) ]
+
+
+
 -- trfExpr' (HsSCC _ lit expr) = AST.UExprPragma <$> pragma <*> trfExpr expr
 --   where pragma = do pragLoc <- tokensLoc [AnnOpen, AnnClose]
 --                     focusOn pragLoc $ annContNoSema (AST.USccPragma <$> annLocNoSema (mappend <$> tokenLoc AnnValStr <*> tokenLocBack AnnVal) (trfText' lit))
@@ -129,54 +145,25 @@ exportExpression (L l (HsMultiIf _ parts))
 -- trfExpr' EWildPat = return AST.UHole
 -- trfExpr' t = unhandledElement "expression" t
 --
--- trfFieldInits :: TransformName n r => HsRecFields n (LHsExpr n) -> Trf (AnnListG AST.UFieldUpdate (Dom r) RangeStage)
--- trfFieldInits (HsRecFields fields dotdot)
---   = do cont <- asks contRange
---        let (normalFlds, implicitFlds) = partition ((cont /=) . getLoc) fields
---        makeList ", " (before AnnCloseC)
---          $ ((++) <$> mapM trfFieldInit normalFlds
---                   <*> (if isJust dotdot then (:[]) <$> annLocNoSema (tokenLoc AnnDotdot)
---                                                                     (AST.UFieldWildcard <$> (annCont (createImplicitFldInfo (unLoc . (\(HsVar n) -> n) . unLoc) (map unLoc implicitFlds)) (pure AST.FldWildcard)))
---                                         else pure []))
---
--- trfFieldInit :: TransformName n r => Located (HsRecField n (LHsExpr n)) -> Trf (Ann AST.UFieldUpdate (Dom r) RangeStage)
--- trfFieldInit = trfLocNoSema $ \case
---   HsRecField id _ True -> AST.UFieldPun <$> trfName (getFieldOccName id)
---   HsRecField id val False -> AST.UNormalFieldUpdate <$> trfName (getFieldOccName id) <*> trfExpr val
---
--- trfFieldUpdate :: TransformName n r => HsRecField' (AmbiguousFieldOcc n) (LHsExpr n) -> Trf (AST.UFieldUpdate (Dom r) RangeStage)
--- trfFieldUpdate (HsRecField id _ True) = AST.UFieldPun <$> trfAmbiguousFieldName id
--- trfFieldUpdate (HsRecField id val False) = AST.UNormalFieldUpdate <$> trfAmbiguousFieldName id <*> trfExpr val
---
--- trfAlt :: TransformName n r => Located (Match n (LHsExpr n)) -> Trf (Ann AST.UAlt (Dom r) RangeStage)
--- trfAlt = trfLocNoSema trfAlt'
---
--- trfAlt' :: TransformName n r => Match n (LHsExpr n) -> Trf (AST.UAlt (Dom r) RangeStage)
--- trfAlt' = gTrfAlt' trfExpr
---
--- gTrfAlt' :: TransformName n r => (Located (ge n) -> Trf (Ann ae (Dom r) RangeStage)) -> Match n (Located (ge n)) -> Trf (AST.UAlt' ae (Dom r) RangeStage)
--- gTrfAlt' te (Match _ [pat] _ (GRHSs rhss (unLoc -> locBinds)))
---   = AST.UAlt <$> trfPattern pat <*> gTrfCaseRhss te rhss <*> trfWhereLocalBinds (collectLocs rhss) locBinds
--- gTrfAlt' _ _ = convertionProblem "gTrfAlt': not exactly one alternative when transforming a case alternative"
---
--- trfCaseRhss :: TransformName n r => [Located (GRHS n (LHsExpr n))] -> Trf (Ann AST.UCaseRhs (Dom r) RangeStage)
--- trfCaseRhss = gTrfCaseRhss trfExpr
---
--- gTrfCaseRhss :: TransformName n r => (Located (ge n) -> Trf (Ann ae (Dom r) RangeStage)) -> [Located (GRHS n (Located (ge n)))] -> Trf (Ann (AST.UCaseRhs' ae) (Dom r) RangeStage)
--- gTrfCaseRhss te [unLoc -> GRHS [] body] = annLocNoSema (combineSrcSpans (getLoc body) <$> updateFocus (pure . updateEnd (const $ srcSpanStart $ getLoc body))
---                                                                                                       (tokenLocBack AnnRarrow))
---                                                  (AST.UUnguardedCaseRhs <$> te body)
--- gTrfCaseRhss te rhss = annLocNoSema (pure $ collectLocs rhss)
---                               (AST.UGuardedCaseRhss <$> trfAnnList ";" (gTrfGuardedCaseRhs' te) rhss)
---
--- trfGuardedCaseRhs :: TransformName n r => Located (GRHS n (LHsExpr n)) -> Trf (Ann AST.UGuardedCaseRhs (Dom r) RangeStage)
--- trfGuardedCaseRhs = trfLocNoSema trfGuardedCaseRhs'
---
--- trfGuardedCaseRhs' :: TransformName n r => GRHS n (LHsExpr n) -> Trf (AST.UGuardedCaseRhs (Dom r) RangeStage)
--- trfGuardedCaseRhs' = gTrfGuardedCaseRhs' trfExpr
---
--- gTrfGuardedCaseRhs' :: TransformName n r => (Located (ge n) -> Trf (Ann ae (Dom r) RangeStage)) -> GRHS n (Located (ge n)) -> Trf (AST.UGuardedCaseRhs' ae (Dom r) RangeStage)
--- gTrfGuardedCaseRhs' te (GRHS guards body) = AST.UGuardedCaseRhs <$> trfAnnList " " trfRhsGuard' guards <*> te body
+
+exportExpression (L l expr) = exportError "expression" expr
+
+
+exportFieldInits :: HsName n => Located (HsRecFields n (LHsExpr n)) -> TrfType ()
+-- TODO: implicit field info
+-- (createImplicitFldInfo (unLoc . (\(HsVar n) -> n) . unLoc) (map unLoc implicitFlds))
+exportFieldInits (L l (HsRecFields fields dotdot))
+  = export FieldUpdates l [ mapM_ exportFieldInit fields, maybe (return ()) (\_ -> export FieldWildcard noSrcSpan []) dotdot ]
+
+exportFieldInit :: HsName n => Located (HsRecField n (LHsExpr n)) -> TrfType ()
+exportFieldInit (L l (HsRecField lbl _ True)) = export FieldPun l [ exportFieldOccName lbl ]
+exportFieldInit (L l (HsRecField lbl arg False))
+  = export NormalFieldUpdate l [ exportFieldOccName lbl, exportExpression arg ]
+
+exportFieldUpdate :: HsName n => Located (HsRecField' (AmbiguousFieldOcc n) (LHsExpr n)) -> TrfType ()
+exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguousFieldOccName lbl ]
+exportFieldUpdate (L l (HsRecField lbl val False))
+  = export NormalFieldUpdate l [ exportAmbiguousFieldOccName lbl, exportExpression val ]
 --
 -- trfCmdTop :: TransformName n r => Located (HsCmdTop n) -> Trf (Ann AST.UCmd (Dom r) RangeStage)
 -- trfCmdTop (L _ (HsCmdTop cmd _ _ _)) = trfCmd cmd

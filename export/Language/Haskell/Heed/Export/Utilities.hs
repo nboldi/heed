@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Language.Haskell.Heed.Export.Utilities where
 
@@ -63,7 +64,21 @@ writeInsert' ctor loc = do
                                 :*: start_row :*: start_col :*: end_row :*: end_col
                                 :*: fmap snd parentRef ]
 
+writeIntAttribute :: Int -> TrfType ()
+writeIntAttribute i = writeAttribute (Nothing :*: Just i :*: Nothing)
 
+writeStringAttribute :: String -> TrfType ()
+writeStringAttribute s = writeAttribute (Just (pack s) :*: Nothing :*: Nothing)
+
+writeFractionalAttribute :: Double -> TrfType ()
+writeFractionalAttribute f = writeAttribute (Nothing :*: Nothing :*: Just f)
+
+writeAttribute :: ( Maybe Text :*: Maybe Int :*: Maybe Double ) -> TrfType ()
+writeAttribute d = do
+  pd <- asks parentData
+  case pd of
+    Just (parentId, parentRef) -> lift $ insert_ attributes [ parentId :*: parentRef :*: d ]
+    Nothing -> return () -- not in export-syntax mode
 
 lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
 lookupNameNode = prepared $ \file start_row start_col -> do
@@ -127,14 +142,14 @@ export ctor loc fields = do
   id <- writeInsert ctor loc
   mapM_ (\(i,val) -> goInto id i val) (zip [1..] fields)
 
-exportError :: Data s => s -> a
-exportError a = throw $ ExportException (dataTypeOf a) (toConstr a)
+exportError :: Data s => String -> s -> a
+exportError exporter a = throw $ ExportException exporter (dataTypeOf a) (toConstr a)
 
-data ExportException = ExportException DataType Constr deriving Show
+data ExportException = ExportException String DataType Constr deriving Show
 
 instance Exception ExportException where
-  displayException (ExportException typ ctor)
-    = "Unexpected element while exporting: " ++ show ctor ++ " of type " ++ show typ
+  displayException (ExportException exporter typ ctor)
+    = "Unexpected element while exporting: " ++ show ctor ++ " of type " ++ show typ ++ " with " ++ exporter
 
 --------------------------------------------------------------------------
 

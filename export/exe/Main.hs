@@ -20,13 +20,13 @@ import Language.Haskell.Heed.Export.Lexical
 
 main :: IO ()
 main = do args <- getArgs
-          case args of "no-export":_ -> example False
-                       _             -> example True
+          case args of "no-export":_ -> exportSrcFile False
+                       _             -> exportSrcFile True
 
 fileName = "A.hs"
 modName = "A"
 
-example doExport =
+exportSrcFile doExport =
   runGhc (Just libdir) $
     withSQLite "haskell.db" $ do
       dflags <- liftGhc getSessionDynFlags
@@ -67,4 +67,6 @@ cleanDatabase = withForeignCheckTurnedOff $ do
    tryDropTable scopes
    createTable scopes
 
+   tryDropTable attributes
+   createTable attributes
 

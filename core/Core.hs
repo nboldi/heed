@@ -69,6 +69,18 @@ nodes = table "nodes" $ autoPrimary "node_id"
     :*: node_end_col
     :*: parent_handle ) = selectors nodes
 
+attributes :: Table ( RowID :*: Int :*: Maybe Text :*: Maybe Int :*: Maybe Double )
+attributes = table "attributes" $ required "container"
+                                    :*: required "attribute_handle"
+                                    :*: optional "text_attribute"
+                                    :*: optional "integer_attribute"
+                                    :*: optional "fractional_attribute"
+( container
+    :*: attribute_handle
+    :*: text_attribute
+    :*: integer_attribute
+    :*: fractional_attribute ) = selectors attributes
+
 -- * Semantic information
 
 names :: Table ( Maybe RowID :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int

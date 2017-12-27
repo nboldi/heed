@@ -13,6 +13,9 @@ exportSplice (L l splice) = undefined
 exportQuasiQuotation :: Located (HsSplice n) -> TrfType ()
 exportQuasiQuotation (L l (HsQuasiQuote _ id l2 str)) = undefined
 
+exportBracket :: Located (HsBracket n) -> TrfType ()
+exportBracket (L l bracket) = undefined
+
 
 -- trfQuasiQuotation' :: TransformName n r => HsSplice n -> Trf (AST.UQuasiQuote (Dom r) RangeStage)
 --  -- the lexer does not provide us with tokens '[', '|' and '|]'
@@ -24,22 +27,22 @@ exportQuasiQuotation (L l (HsQuasiQuote _ id l2 str)) = undefined
 --                        return $ mkSrcSpan (updateCol (+1) (srcSpanStart rng)) (updateCol (subtract 1) (srcSpanStart l))
 --         strLoc = mkSrcSpan (srcSpanStart l) (updateCol (subtract 2) (srcSpanEnd l))
 -- trfQuasiQuotation' qq = unhandledElement "quasi quotation" qq
--- 
+--
 -- trfSplice :: TransformName n r => HsSplice n -> Trf (Ann AST.USplice (Dom r) RangeStage)
 -- trfSplice spls = do rng <- asks contRange
 --                     annLocNoSema (pure $ getSpliceLoc spls `mappend` rng) (trfSplice' spls)
--- 
+--
 -- getSpliceLoc :: HsSplice a -> SrcSpan
 -- getSpliceLoc (HsTypedSplice _ _ e) = getLoc e
 -- getSpliceLoc (HsUntypedSplice _ _ e) = getLoc e
 -- getSpliceLoc (HsQuasiQuote _ _ sp _) = sp
 -- getSpliceLoc (HsSpliced _ _) = noSrcSpan
--- 
+--
 -- trfSplice' :: TransformName n r => HsSplice n -> Trf (AST.USplice (Dom r) RangeStage)
 -- trfSplice' (HsTypedSplice _ _ expr) = trfSpliceExpr expr
 -- trfSplice' (HsUntypedSplice _ _ expr) = trfSpliceExpr expr
 -- trfSplice' s = unhandledElement "splice" s
--- 
+--
 -- -- | TODO: easier with splice decoration
 -- trfSpliceExpr :: TransformName n r => Located (HsExpr n) -> Trf (AST.USplice (Dom r) RangeStage)
 -- trfSpliceExpr expr =
@@ -52,7 +55,7 @@ exportQuasiQuotation (L l (HsQuasiQuote _ id l2 str)) = undefined
 --      case expr of L _ (HsVar (L _ varName)) -> AST.UIdSplice <$> trfName (L newSp varName)
 --                   L _ (HsRecFld fldName) -> AST.UIdSplice <$> trfAmbiguousFieldName' newSp fldName
 --                   expr -> AST.UParenSplice <$> trfExpr expr
--- 
+--
 -- trfBracket' :: TransformName n r => HsBracket n -> Trf (AST.UBracket (Dom r) RangeStage)
 -- trfBracket' (ExpBr expr) = AST.UExprBracket <$> trfExpr expr
 -- trfBracket' (TExpBr expr) = AST.UExprBracket <$> trfExpr expr
