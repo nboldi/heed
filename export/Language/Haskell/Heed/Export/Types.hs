@@ -1,104 +1,76 @@
 -- TODO: force completeness with  {-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-}
+{-# LANGUAGE ViewPatterns #-}
 module Language.Haskell.Heed.Export.Types where
 
 import Language.Haskell.Heed.Export.Names
+import Language.Haskell.Heed.Export.Kinds
 import Language.Haskell.Heed.Export.Literals
+import Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Utilities
+import Language.Haskell.Heed.Export.Schema
 
+import Control.Monad
 import HsTypes
+import HsExpr
 import SrcLoc
 
-exportType :: Located (HsType n) -> TrfType ()
+exportType :: HsName n => Exporter (Located (HsType n))
 exportType (L l (HsForAllTy [] typ)) = exportType typ
+exportType (L l (HsForAllTy bndrs typ))
+  = export ForallT l [ mapM_ exportTypeVar bndrs, exportType typ ]
+exportType (L l (HsQualTy (L _ []) typ)) = exportType typ
+exportType (L l (HsQualTy ctx typ)) = export ContextT l [ exportContext ctx, exportType typ ]
+exportType (L l (HsTyVar _ name)) = export VariableT l [ exportName name ]
+exportType (L l (HsAppsTy apps)) | Just (headT, args, _) <- getAppsTyHead_maybe apps
+  = export ApplicationT l [ exportType headT, mapM_ exportType args ]
+exportType (L l (HsAppTy t1 t2)) = export ApplicationT l [ exportType t1, exportType t2 ]
+exportType (L l (HsFunTy t1 t2)) = export FunctionT l [ exportType t1, exportType t2 ]
+exportType (L l (HsListTy typ)) = export ListT l [ exportType typ ]
+exportType (L l (HsPArrTy typ)) = export ParallelArrayT l [ exportType typ ]
+exportType (L l (HsTupleTy HsBoxedOrConstraintTuple typs)) = export TupleT l [ mapM_ exportType typs ]
+exportType (L l (HsTupleTy HsBoxedTuple typs)) = export TupleT l [ mapM_ exportType typs ]
+exportType (L l (HsTupleTy HsUnboxedTuple typs)) = export UnboxedTupleT l [ mapM_ exportType typs ]
+exportType (L l (HsOpTy t1 op t2))
+  = export InfixT l [ exportType t1, exportOperator op, exportType t2 ]
+exportType (L l (HsParTy typ)) = export ParenT l [ exportType typ ]
+exportType (L l (HsKindSig typ kind)) = export KindedT l [ exportType typ, exportKind kind ]
+exportType (L l (HsSpliceTy qq@(HsQuasiQuote {}) _)) = export QuasiQouteT l [ exportQuasiQuotation (L l qq) ]
+exportType (L l (HsSpliceTy splice _)) = export SpliceT l [ exportSplice (L l splice) ]
+exportType (L l (HsBangTy (HsSrcBang _ SrcUnpack _) typ)) = export UnpackT l [ exportType typ ]
+exportType (L l (HsBangTy (HsSrcBang _ SrcNoUnpack _) typ)) = export NoUnpackT l [ exportType typ ]
+exportType (L l (HsBangTy (HsSrcBang _ _ SrcStrict) typ)) = export BangT l [ exportType typ ]
+exportType (L l (HsBangTy (HsSrcBang _ _ SrcLazy) typ)) = export LazyT l [ exportType typ ]
+exportType (L l pt@(HsExplicitListTy {})) = export PromotedT l [ exportPromoted exportType (L l pt) ]
+exportType (L l pt@(HsExplicitTupleTy {})) = export PromotedT l [ exportPromoted exportType (L l pt) ]
+exportType (L l pt@(HsTyLit {})) = export PromotedT l [ exportPromoted exportType (L l pt) ]
+exportType (L l (HsWildCardTy _)) = export WildcardT l []
+exportType (L l (HsSumTy types)) = export SumT l [ mapM_ exportType types ]
+exportType (L l t) = exportError "type" t
 
--- trfType :: TransformName n r => Located (HsType n) -> Trf (Ann AST.UType (Dom r) RangeStage)
--- trfType typ | RealSrcSpan loce <- getLoc typ
---   = do othSplices <- asks typeSplices
---        let contSplice = filter (\sp -> case getLoc sp of (RealSrcSpan spLoc) -> spLoc `containsSpan` loce; _ -> False) othSplices
---        case contSplice of [] -> trfLocNoSema trfType' typ
---                           _ -> let lsp@(L l sp) = minimumBy (compareSpans `on` getLoc) contSplice
---                                 in typeSpliceInserted lsp (annLocNoSema (pure l) (AST.UTySplice <$> (trfSplice =<< rdrSplice sp)))
---   | otherwise = trfLocNoSema trfType' typ
--- 
--- trfType' :: TransformName n r => HsType n -> Trf (AST.UType (Dom r) RangeStage)
--- trfType' = trfType'' . cleanHsType where
---   trfType'' (HsForAllTy [] typ) = trfType' (unLoc typ)
---   trfType'' (HsForAllTy bndrs typ) = AST.UTyForall <$> defineTypeVars (trfBindings bndrs)
---                                                    <*> addToScope bndrs (trfType typ)
---   trfType'' (HsQualTy (L _ []) typ) = trfType' (unLoc typ)
---   trfType'' (HsQualTy ctx typ) = AST.UTyCtx <$> (fromJust . (^. annMaybe) <$> trfCtx atTheStart ctx)
---                                             <*> trfType typ
---   trfType'' (HsTyVar _ name) = AST.UTyVar <$> transformingPossibleVar name (trfName name)
---   trfType'' (HsAppsTy apps) | Just (head, args, _) <- getAppsTyHead_maybe apps
---     = foldl (\core t -> AST.UTyApp <$> annLocNoSema (pure $ getLoc head `combineSrcSpans` getLoc t) core <*> trfType t) (trfType' (unLoc head)) args
---   trfType'' (HsAppTy t1 t2) = AST.UTyApp <$> trfType t1 <*> trfType t2
---   trfType'' (HsFunTy t1 t2) = AST.UTyFun <$> trfType t1 <*> trfType t2
---   trfType'' (HsListTy typ) = AST.UTyList <$> trfType typ
---   trfType'' (HsPArrTy typ) = AST.UTyParArray <$> trfType typ
---   trfType'' (HsTupleTy HsBoxedOrConstraintTuple typs) = AST.UTyTuple <$> trfAnnList ", " trfType' typs
---   trfType'' (HsTupleTy HsBoxedTuple typs) = AST.UTyTuple <$> trfAnnList ", " trfType' typs
---   trfType'' (HsTupleTy HsUnboxedTuple typs) = AST.UTyUnbTuple <$> trfAnnList ", " trfType' typs
---   trfType'' (HsOpTy t1 op t2) = AST.UTyInfix <$> trfType t1 <*> trfOperator op <*> trfType t2
---   trfType'' (HsParTy typ) = AST.UTyParen <$> trfType typ
---   trfType'' (HsKindSig typ kind) = AST.UTyKinded <$> trfType typ <*> trfKind kind
---   trfType'' (HsSpliceTy qq@(HsQuasiQuote {}) _) = AST.UTyQuasiQuote <$> annContNoSema (trfQuasiQuotation' qq)
---   trfType'' (HsSpliceTy splice _) = AST.UTySplice <$> trfSplice splice
---   trfType'' (HsBangTy (HsSrcBang _ SrcUnpack _) typ) = AST.UTyUnpack <$> trfType typ
---   trfType'' (HsBangTy (HsSrcBang _ SrcNoUnpack _) typ) = AST.UTyNoUnpack <$> trfType typ
---   trfType'' (HsBangTy (HsSrcBang _ _ SrcStrict) typ) = AST.UTyBang <$> trfType typ
---   trfType'' (HsBangTy (HsSrcBang _ _ SrcLazy) typ) = AST.UTyLazy <$> trfType typ
---   trfType'' pt@(HsExplicitListTy {}) = AST.UTyPromoted <$> annContNoSema (trfPromoted' trfType' pt)
---   trfType'' pt@(HsExplicitTupleTy {}) = AST.UTyPromoted <$> annContNoSema (trfPromoted' trfType' pt)
---   trfType'' pt@(HsTyLit {}) = AST.UTyPromoted <$> annContNoSema (trfPromoted' trfType' pt)
---   trfType'' (HsWildCardTy _) = pure AST.UTyWildcard -- TODO: named wildcards
---   trfType'' (HsSumTy types) = AST.UUnbSumType <$> trfAnnList " | " trfType' types
---   trfType'' t = unhandledElement "type" t
--- 
--- trfBindings :: TransformName n r => [Located (HsTyVarBndr n)] -> Trf (AnnListG AST.UTyVar (Dom r) RangeStage)
--- trfBindings vars = trfAnnList " " trfTyVar' vars
--- 
--- trfTyVar :: TransformName n r => Located (HsTyVarBndr n) -> Trf (Ann AST.UTyVar (Dom r) RangeStage)
--- trfTyVar = trfLocNoSema trfTyVar'
--- 
--- trfTyVar' :: TransformName n r => HsTyVarBndr n -> Trf (AST.UTyVar (Dom r) RangeStage)
--- trfTyVar' (UserTyVar name) = AST.UTyVarDecl <$> typeVarTransform (trfName name)
---                                            <*> (nothing " " "" atTheEnd)
--- trfTyVar' (KindedTyVar name kind) = AST.UTyVarDecl <$> typeVarTransform (trfName name)
---                                                   <*> trfKindSig (Just kind)
--- 
--- trfCtx :: TransformName n r => Trf SrcLoc -> Located (HsContext n) -> Trf (AnnMaybeG AST.UContext (Dom r) RangeStage)
--- trfCtx sp (L _ []) = nothing " " "" sp
--- trfCtx _ (L l [L _ (HsParTy t)])
---   = makeJust <$> annLocNoSema (combineSrcSpans l <$> tokenLoc AnnDarrow)
---                               (AST.UContext <$> annLocNoSema (pure l) (AST.UTupleAssert <$> (trfAnnList ", " trfAssertion' [t])))
--- trfCtx _ (L l [t])
---   = makeJust <$> annLocNoSema (combineSrcSpans l <$> tokenLoc AnnDarrow)
---                               (AST.UContext <$> trfAssertion t)
--- trfCtx _ (L l ctx) = makeJust <$> annLocNoSema (combineSrcSpans l <$> tokenLoc AnnDarrow)
---                                                (AST.UContext <$> annLocNoSema (pure l) (AST.UTupleAssert <$> (trfAnnList ", " trfAssertion' ctx)))
--- 
--- trfAssertion :: TransformName n r => LHsType n -> Trf (Ann AST.UAssertion (Dom r) RangeStage)
--- trfAssertion = trfLocNoSema trfAssertion'
--- 
--- trfAssertion' :: forall n r . TransformName n r => HsType n -> Trf (AST.UAssertion (Dom r) RangeStage)
--- trfAssertion' (cleanHsType -> HsParTy t)
---   = trfAssertion' (unLoc t)
--- trfAssertion' (cleanHsType -> HsOpTy left op right)
---   = AST.UInfixAssert <$> trfType left <*> trfOperator op <*> trfType right
--- trfAssertion' (cleanHsType -> HsTupleTy _ tys)
---   = AST.UTupleAssert <$> makeList ", " (after AnnOpenP) (mapM trfAssertion tys)
--- trfAssertion' (cleanHsType -> HsWildCardTy _)
---   = pure AST.UWildcardAssert
--- trfAssertion' (cleanHsType -> t) = case cleanHsType base of
---    HsTyVar _ name -> AST.UClassAssert <$> trfName name <*> trfAnnList " " trfType' args
---    HsEqTy t1 t2 -> AST.UInfixAssert <$> trfType t1 <*> annLocNoSema (tokenLoc AnnTilde) (trfOperator' typeEq) <*> trfType t2
---    HsIParamTy name t -> AST.UImplicitAssert <$> define (focusOn (getLoc name) (trfImplicitName (unLoc name))) <*> trfType t
---    t -> unhandledElement "assertion" t
---   where (args, _, base) = getArgs t
--- 
---         getArgs :: HsType n -> ([LHsType n], Maybe SrcSpan, HsType n)
---         getArgs (HsAppTy (L l ft) at) = case getArgs ft of (args, sp, base) -> (args++[at], sp <|> Just l, base)
---         getArgs t = ([], Nothing, t)
--- 
---         typeEq :: n
---         typeEq = nameFromId (mkVanillaGlobal (tyConName heqTyCon) (tyConKind heqTyCon))
+exportTypeVar :: HsName n => Exporter (Located (HsTyVarBndr n))
+exportTypeVar (L l (UserTyVar name)) = export NormalTV l [ exportName name ]
+exportTypeVar (L l (KindedTyVar name kind))
+  = export KindedTV l [ exportName name, exportKindSignature (Just kind) ]
+
+exportContext :: HsName n => Exporter (Located (HsContext n))
+exportContext (L l ctx) = export Context l [ mapM_ exportPredicate ctx ]
+
+
+exportPredicate :: HsName n => Exporter (LHsType n)
+exportPredicate (L l (HsParTy t)) = exportPredicate t
+exportPredicate (L l (HsOpTy left op right))
+  = export InfixPredicate l [ exportType left, exportOperator op, exportType right ]
+exportPredicate (L l (HsTupleTy _ tys)) = export TuplePredicate l [ mapM_ exportPredicate tys ]
+exportPredicate (L l (HsWildCardTy _)) = export WildcardPredicate l []
+exportPredicate (L l (unappType -> (args, HsTyVar _ name)))
+  = export ClassPredicate l [ exportName name, mapM_ exportType args ]
+exportPredicate (L l (unappType -> ([], HsEqTy t1 t2)))
+  = export TypeEqPredicate l [ exportType t1, exportType t2 ]
+exportPredicate (L l (unappType -> ([], HsIParamTy name typ)))
+  = export ImplicitPredicate l [ defining (exportImplicitName name), exportType typ ]
+exportPredicate (L l t) = exportError "assertion" t
+
+unappType :: HsType n -> ([LHsType n], HsType n)
+unappType (HsAppTy (L l ft) at) = case unappType ft of (args, base) -> (args++[at], base)
+unappType t                     = ([], t)
+

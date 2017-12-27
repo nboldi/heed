@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Language.Haskell.Heed.Export.Names (exportOperator, exportImplicitName) where
 
 import Language.Haskell.Heed.Export.Utilities
@@ -11,6 +12,16 @@ import qualified Name as GHC
 import Name (isSymOcc, occName)
 import HsTypes
 import SrcLoc
+import Id
+
+instance IsRdrName RdrName where
+  toRdrName = id
+
+instance IsRdrName GHC.Name where
+  toRdrName = nameRdrName
+
+instance IsRdrName Id where
+  toRdrName = nameRdrName . idName
 
 instance HsName RdrName where
   exportName (L l _) = void $ writeInsert Normal l

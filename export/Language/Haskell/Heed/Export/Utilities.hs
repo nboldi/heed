@@ -35,7 +35,12 @@ initExportState exportSyntax mod = ExportState Nothing exportSyntax mod False un
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
 
-class (DataId n, HasOccName n, HsHasName n) => HsName n where
+type Exporter n = n -> TrfType ()
+
+class IsRdrName n where
+  toRdrName :: n -> RdrName
+
+class (DataId n, HasOccName n, HsHasName n, IsRdrName n) => HsName n where
   exportName :: Located n -> TrfType ()
   exportNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
   exportFieldOccName :: Located (FieldOcc n) -> TrfType ()

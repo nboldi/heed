@@ -21,7 +21,7 @@ import HsTypes
 import BasicTypes (Boxity(..))
 import SrcLoc
 
-exportExpression :: HsName n => Located (HsExpr n) -> TrfType ()
+exportExpression :: HsName n => Exporter (Located (HsExpr n))
 exportExpression (L l (OpApp e1 (L _ (HsVar op)) _ e2))
   = export InfixAppE l [ exportExpression e1, exportName op, exportExpression e2 ]
 exportExpression (L l (HsVar name)) = export VarE l [ exportName name ]
@@ -149,18 +149,18 @@ exportExpression (L l (HsAppType expr typ))
 exportExpression (L l expr) = exportError "expression" expr
 
 
-exportFieldInits :: HsName n => Located (HsRecFields n (LHsExpr n)) -> TrfType ()
+exportFieldInits :: HsName n => Exporter (Located (HsRecFields n (LHsExpr n)))
 -- TODO: implicit field info
 -- (createImplicitFldInfo (unLoc . (\(HsVar n) -> n) . unLoc) (map unLoc implicitFlds))
 exportFieldInits (L l (HsRecFields fields dotdot))
   = export FieldUpdates l [ mapM_ exportFieldInit fields, maybe (return ()) (\_ -> export FieldWildcard noSrcSpan []) dotdot ]
 
-exportFieldInit :: HsName n => Located (HsRecField n (LHsExpr n)) -> TrfType ()
+exportFieldInit :: HsName n => Exporter (Located (HsRecField n (LHsExpr n)))
 exportFieldInit (L l (HsRecField lbl _ True)) = export FieldPun l [ exportFieldOccName lbl ]
 exportFieldInit (L l (HsRecField lbl arg False))
   = export NormalFieldUpdate l [ exportFieldOccName lbl, exportExpression arg ]
 
-exportFieldUpdate :: HsName n => Located (HsRecField' (AmbiguousFieldOcc n) (LHsExpr n)) -> TrfType ()
+exportFieldUpdate :: HsName n => Exporter (Located (HsRecField' (AmbiguousFieldOcc n) (LHsExpr n)))
 exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguousFieldOccName lbl ]
 exportFieldUpdate (L l (HsRecField lbl val False))
   = export NormalFieldUpdate l [ exportAmbiguousFieldOccName lbl, exportExpression val ]

@@ -11,7 +11,7 @@ import BasicTypes
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema
 
-exportMonoLiteral :: Located HsLit -> TrfType ()
+exportMonoLiteral :: Exporter (Located HsLit)
 exportMonoLiteral (L l (HsChar _ ch)) = export Character l [ writeStringAttribute [ch] ]
 exportMonoLiteral (L l (HsCharPrim _ ch)) = export PrimitiveCharacter l [ writeStringAttribute [ch] ]
 exportMonoLiteral (L l (HsString _ str)) = export String l [ writeStringAttribute (unpackFS str) ]
@@ -23,7 +23,7 @@ exportMonoLiteral (L l (HsWord64Prim _ i)) = export PrimitiveWord64 l [ writeInt
 exportMonoLiteral (L l (HsFloatPrim frac)) = export PrimitiveFloat l [ writeFractionalAttribute (fromRational $ fl_value frac) ]
 exportMonoLiteral (L l (HsDoublePrim frac)) = export PrimitiveDouble l [ writeFractionalAttribute (fromRational $ fl_value frac) ]
 
-exportPolyLiteral :: Located OverLitVal -> TrfType ()
+exportPolyLiteral :: Exporter (Located OverLitVal)
 exportPolyLiteral (L l (HsIntegral _ i)) = export Integral l [ writeIntAttribute (fromIntegral i) ]
 exportPolyLiteral (L l (HsFractional frac)) = export Fractional l [ writeFractionalAttribute (fromRational $ fl_value frac) ]
 exportPolyLiteral (L l (HsIsString _ str)) = export OverloadedString l [ writeStringAttribute (unpackFS str) ]

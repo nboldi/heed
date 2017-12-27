@@ -43,27 +43,25 @@ data PatternField = Prefix | Pun deriving Data
 
 data KindSignature = KindSignature deriving Data
 
-data Kind = ParenK | FunctionK | ApplicationK | InfixApplicationK deriving Data
+data Kind = StarK | UnboxK | ParenK | FunctionK | ApplicationK | InfixApplicationK | VarK
+          | ListK | TupleK | PromotedK | TypeK
+  deriving Data
+
+data Promoted = PromotedInt | PromotedString | PromotedList | PromotedTuple
+  deriving Data
 
 data TypeSignature = TypeSignature deriving Data
 
 data FixitySignature = FixitySignatureLeft | FixitySignatureRight | FixitySignature deriving Data
 
-data Type = ForallT deriving Data
+data Type = ForallT | ContextT | VariableT | ApplicationT | FunctionT | ListT | ParallelArrayT
+          | TupleT | UnboxedTupleT | ParenT | InfixT | KindedT | QuasiQouteT | SpliceT | UnpackT
+          | NoUnpackT | BangT | LazyT | PromotedT | WildcardT | SumT
+  deriving Data
 
-data Literal = Character
-             | PrimitiveCharacter
-             | String
-             | PrimitiveString
-             | PrimitiveInt
-             | Word
-             | PrimitiveInt64
-             | PrimitiveWord64
-             | PrimitiveFloat
-             | PrimitiveDouble
-             | Integral
-             | Fractional
-             | OverloadedString
+data Literal = Character | PrimitiveCharacter | String | PrimitiveString | PrimitiveInt
+             | Word | PrimitiveInt64 | PrimitiveWord64 | PrimitiveFloat | PrimitiveDouble
+             | Integral | Fractional | OverloadedString
   deriving Data
 
 
@@ -80,10 +78,22 @@ data FieldWildcard = FieldWildcard deriving Data
 data FieldUpdate = FieldPun | NormalFieldUpdate
   deriving Data
 
+data TypeVariable = NormalTV | KindedTV
+  deriving Data
+
+data Context = Context
+  deriving Data
+
+data Predicate = ClassPredicate | TuplePredicate | TypeEqPredicate | ImplicitPredicate
+               | InfixPredicate | WildcardPredicate
+  deriving Data
+
+-- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
      (zip [0..] [ ''Module, ''Declaration, ''Binding, ''Match, ''Alternative, ''Rhs, ''CaseRhs
                 , ''Expression, ''Pattern, ''PatternField, ''KindSignature, ''Kind, ''Literal
                 , ''Name, ''Operator, ''Type, ''TypeSignature, ''FixitySignature, ''LocalBindings
-                , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard ])
+                , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard, ''Promoted
+                , ''TypeVariable, ''Context, ''Predicate ])
  )

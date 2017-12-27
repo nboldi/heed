@@ -19,7 +19,7 @@ import HsTypes
 import HsExpr
 import HsLit
 
-exportPattern :: HsName n => Located (Pat n) -> TrfType ()
+exportPattern :: HsName n => Exporter (Located (Pat n))
 exportPattern (L l (VarPat name)) = export VariableP l [ defining (exportName name) ]
 exportPattern (L l (WildPat _)) = export WildcardP l []
 exportPattern (L l (LazyPat pat)) = export LazyP l [ exportPattern pat ]
@@ -57,7 +57,7 @@ exportPattern (L l (CoPat _ pat _)) = exportPattern (L l pat) -- coercion patter
 exportPattern (L l (SumPat pat _ _ _))
   = export SumP l [ exportPattern pat ]
 
-exportPatternField :: HsName n => Located (HsRecField n (LPat n)) -> TrfType ()
+exportPatternField :: HsName n => Exporter (Located (HsRecField n (LPat n)))
 exportPatternField (L l (HsRecField id arg False))
   = export Prefix l [ exportFieldOccName id, exportPattern arg ]
 exportPatternField (L l (HsRecField id _ True))

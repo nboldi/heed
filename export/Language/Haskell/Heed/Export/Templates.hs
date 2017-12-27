@@ -7,13 +7,13 @@ import Language.Haskell.Heed.Export.Utilities
 import HsExpr
 import SrcLoc
 
-exportSplice :: Located (HsSplice n) -> TrfType ()
+exportSplice :: Exporter (Located (HsSplice n))
 exportSplice (L l splice) = undefined
 
-exportQuasiQuotation :: Located (HsSplice n) -> TrfType ()
+exportQuasiQuotation :: Exporter (Located (HsSplice n))
 exportQuasiQuotation (L l (HsQuasiQuote _ id l2 str)) = undefined
 
-exportBracket :: Located (HsBracket n) -> TrfType ()
+exportBracket :: Exporter (Located (HsBracket n))
 exportBracket (L l bracket) = undefined
 
 

@@ -18,11 +18,11 @@ import HsExpr hiding (Match)
 import qualified HsExpr as GHC
 import SrcLoc
 
-exportBinding :: HsName n => Located (HsBind n) -> TrfType ()
+exportBinding :: HsName n => Exporter (Located (HsBind n))
 exportBinding (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _)) =
   export FunctionB l [ mapM_ exportMatch matches ]
 
-exportMatch :: forall n . HsName n => Located (GHC.Match n (LHsExpr n)) -> TrfType ()
+exportMatch :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
 exportMatch (L l (GHC.Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
   id <- writeInsert Match l
   defining $ goInto id 1 $ exportNameOrRdrName @n (mc_fun name)
@@ -30,7 +30,7 @@ exportMatch (L l (GHC.Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
    goInto id 2 $ mapM_ exportPattern pats
    goInto id 3 $ mapM_ exportRhss rhss
 
-exportAlternative :: forall n . HsName n => Located (GHC.Match n (LHsExpr n)) -> TrfType ()
+exportAlternative :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
 exportAlternative (L l (GHC.Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
   id <- writeInsert Alternative l
   addToScope (combineLocated pats) $ do
@@ -38,15 +38,15 @@ exportAlternative (L l (GHC.Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
    goInto id 2 $ mapM_ exportRhss rhss
 
 
-exportRhss :: HsName n => Located (GRHS n (LHsExpr n)) -> TrfType ()
+exportRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
 exportRhss (L l (GRHS [] body)) =
   export Unguarded l [ exportExpression body ]
 
-exportCaseRhss :: HsName n => Located (GRHS n (LHsExpr n)) -> TrfType ()
+exportCaseRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
 exportCaseRhss (L l (GRHS [] body)) =
   export UnguardedC l [ exportExpression body ]
 
-exportLocalBinds :: HsName n => LHsLocalBinds n -> TrfType ()
+exportLocalBinds :: HsName n => Exporter (LHsLocalBinds n)
 exportLocalBinds (L l (HsValBinds (ValBindsIn binds sigs)))
   = export LocalBindings l [ mapM_ exportBinding (bagToList binds) >> mapM_ exportLocalSig sigs ]
 exportLocalBinds (L l (HsValBinds (ValBindsOut binds sigs)))
@@ -56,19 +56,19 @@ exportLocalBinds (L l (HsValBinds (ValBindsOut binds sigs)))
 exportLocalBinds (L l lb) = exportError "local binds" lb
 
 
-exportLocalSig :: HsName n => Located (Sig n) -> TrfType ()
+exportLocalSig :: HsName n => Exporter (Located (Sig n))
 exportLocalSig ts@(L l (TypeSig {})) = export LocalTypeSignature l [exportTypeSignature ts]
 exportLocalSig (L l (FixSig fs)) = export LocalFixitySignature l [exportFixitySignature (L l fs)]
 -- exportLocalSig (L l (InlineSig name prag)) = export LocalInline l (exportInlinePragma name prag)
 exportLocalSig (L l ls) = exportError "local signature" ls
 
-exportTypeSignature :: HsName n => Located (Sig n) -> TrfType ()
+exportTypeSignature :: HsName n => Exporter (Located (Sig n))
 exportTypeSignature (L l (TypeSig names typ))
   = export TypeSignature l [ mapM_ exportName names, exportType (hsib_body $ hswc_body typ) ]
 exportTypeSignature (L l ts) = exportError "type signature" ts
 
 
-exportFixitySignature :: HsName n => Located (FixitySig n) -> TrfType ()
+exportFixitySignature :: HsName n => Exporter (Located (FixitySig n))
 exportFixitySignature (L l (FixitySig names (Fixity _ prec InfixL)))
   = export FixitySignatureLeft l [ writeIntAttribute prec ]
 exportFixitySignature (L l (FixitySig names (Fixity _ prec InfixR)))

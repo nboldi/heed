@@ -9,5 +9,5 @@ import Data.Data
 import HsDecls
 import SrcLoc
 
-exportDeclaration :: HsName n => Located (HsDecl n) -> TrfType ()
+exportDeclaration :: HsName n => Exporter (Located (HsDecl n))
 exportDeclaration (L l (ValD bind)) = export BindingD l [ exportBinding (L l bind) ]
