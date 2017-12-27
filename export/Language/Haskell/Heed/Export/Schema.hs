@@ -30,7 +30,8 @@ data Expression = VarE | InfixAppE | LiteralE | LambdaE | LambdaCaseE | AppE | P
                 | RightSectionE | LeftSectionE | ParenE | TupleE | TupleSectionE | UnboxedTupleE
                 | UnboxedTupleSectionE | IfE | MultiIfE | LetE | ListE | ParallelArrayE
                 | RecordConstructE | RecordUpdateE | TypedE | EnumE | ParallelArrayEnumE
-                | BracketE | QuasiQouteE | SpliceE | StaticE | TypeApplicationE
+                | BracketE | QuasiQouteE | SpliceE | StaticE | TypeApplicationE | DoE | MDoE
+                | ListCompE | ParallelArrayCompE
   deriving Data
 
 
@@ -88,6 +89,15 @@ data Predicate = ClassPredicate | TuplePredicate | TypeEqPredicate | ImplicitPre
                | InfixPredicate | WildcardPredicate
   deriving Data
 
+data Statement = BindS | BodyS | LetS | RecursiveS
+  deriving Data
+
+data ListComprehensionBody = ListCompBody
+  deriving Data
+
+data ListComprehensionStatement = ThenS | GroupS | NormalS
+  deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -95,5 +105,6 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''Expression, ''Pattern, ''PatternField, ''KindSignature, ''Kind, ''Literal
                 , ''Name, ''Operator, ''Type, ''TypeSignature, ''FixitySignature, ''LocalBindings
                 , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard, ''Promoted
-                , ''TypeVariable, ''Context, ''Predicate ])
+                , ''TypeVariable, ''Context, ''Predicate, ''Statement, ''ListComprehensionBody
+                , ''ListComprehensionStatement ])
  )

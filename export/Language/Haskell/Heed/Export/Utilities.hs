@@ -140,6 +140,11 @@ doAddToScope sp act = do
   newScope <- lift $ insertWithPK scopes [ def :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col ]
   local (\s -> s { scope = newScope}) act
 
+scopedSequence :: (Exporter (Located e)) -> Exporter [Located e]
+scopedSequence f (first:next:rest)
+  = addToScope (combineLocated (next:rest)) (f first >> scopedSequence f (next:rest))
+scopedSequence f elems = mapM_ f elems
+
 --------------------------------------------------------------------------
 
 export :: Schema c => c -> SrcSpan -> [(TrfType ())] -> TrfType ()

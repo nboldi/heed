@@ -11,7 +11,6 @@ import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema
 
-import Data.Data (Data(..))
 import HsPat
 import BasicTypes as GHC (Boxity(..))
 import SrcLoc

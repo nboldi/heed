@@ -8,11 +8,11 @@ import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Literals
 import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Templates
+import Language.Haskell.Heed.Export.Statements
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema hiding (Literal(..), Match(..))
+import Language.Haskell.Heed.Export.Schema hiding (Match(..))
 
-import Data.Data (Data(..))
 import HsExpr
 import HsPat
 import HsBinds
@@ -68,24 +68,20 @@ exportExpression (L l (HsMultiIf _ parts))
   = export MultiIfE l [ mapM_ exportCaseRhss parts ]
 exportExpression (L l (HsLet (unLoc -> binds) expr))
   = addToScope l $ export LetE l [ exportLocalBinds (L l binds), exportExpression expr ]
--- exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))
---   =
-
--- trfExpr' (HsDo DoExpr (unLoc -> stmts) _) = AST.UDo <$> annLocNoSema (tokenLoc AnnDo) (pure AST.UDoKeyword)
---                                                     <*> makeNonemptyIndentedList (trfScopedSequence trfDoStmt stmts)
--- trfExpr' (HsDo MDoExpr (unLoc -> [unLoc -> RecStmt { recS_stmts = stmts }, lastStmt]) _)
---   = AST.UDo <$> annLocNoSema (tokenLoc AnnMdo) (pure AST.UMDoKeyword)
---             <*> addToScope stmts (makeNonemptyIndentedList (mapM trfDoStmt (stmts ++ [lastStmt])))
--- trfExpr' (HsDo MDoExpr (unLoc -> stmts) _) = AST.UDo <$> annLocNoSema (tokenLoc AnnMdo) (pure AST.UMDoKeyword)
---                                                      <*> addToScope stmts (makeNonemptyIndentedList (mapM trfDoStmt stmts))
--- trfExpr' (HsDo ListComp (unLoc -> stmts) _)
---   = AST.UListComp <$> trfExpr (getLastStmt stmts) <*> trfListCompStmts stmts
--- trfExpr' (HsDo MonadComp (unLoc -> stmts) _)
---   = AST.UListComp <$> trfExpr (getLastStmt stmts) <*> trfListCompStmts stmts
--- trfExpr' (HsDo PArrComp (unLoc -> stmts) _)
---   = AST.UParArrayComp <$> trfExpr (getLastStmt stmts) <*> trfListCompStmts stmts
-
-
+exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))
+  = export DoE l [ scopedSequence (exportDoStatement exportExpression) stmts ]
+exportExpression (L l (HsDo MDoExpr (unLoc -> [unLoc -> RecStmt { recS_stmts = stmts }, lastStmt]) _))
+  = export MDoE l [ scopedSequence (exportDoStatement exportExpression) (stmts ++ [lastStmt]) ]
+exportExpression (L l (HsDo MDoExpr (unLoc -> stmts) _))
+  = export MDoE l [ scopedSequence (exportDoStatement exportExpression) stmts ]
+exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))
+  = export DoE l [ scopedSequence (exportDoStatement exportExpression) stmts ]
+exportExpression (L l (HsDo ListComp (unLoc -> stmts) _))
+  = export ListCompE l [ exportListCompStatements stmts ]
+exportExpression (L l (HsDo MonadComp (unLoc -> stmts) _))
+  = export ListCompE l [ exportListCompStatements stmts ]
+exportExpression (L l (HsDo PArrComp (unLoc -> stmts) _))
+  = export ParallelArrayCompE l [ exportListCompStatements stmts ]
 exportExpression (L l (ExplicitList _ _ exprs)) = export ListE l [ mapM_ exportExpression exprs ]
 exportExpression (L l (ExplicitPArr _ exprs))
   = export ParallelArrayE l [ mapM_ exportExpression exprs ]
