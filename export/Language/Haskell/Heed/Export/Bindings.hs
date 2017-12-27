@@ -5,6 +5,7 @@ module Language.Haskell.Heed.Export.Bindings where
 
 import Language.Haskell.Heed.Export.Expressions
 import Language.Haskell.Heed.Export.Patterns
+import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema
@@ -25,7 +26,10 @@ exportBinding (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _)) =
 exportMatch :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
 exportMatch (L l (GHC.Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
   id <- writeInsert Match l
-  defining $ goInto id 1 $ exportNameOrRdrName @n (mc_fun name)
+  defining $ goInto id 1
+    $ exportNameOrRdrName @n (case mc_fixity name of BasicTypes.Prefix -> exportName
+                                                     BasicTypes.Infix -> exportOperator)
+                             (mc_fun name)
   addToScope (combineLocated pats) $ do
    goInto id 2 $ mapM_ exportPattern pats
    goInto id 3 $ mapM_ exportRhss rhss

@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -12,6 +13,7 @@ import FastString
 import Outputable (showSDocUnsafe, ppr)
 import Name
 import SrcLoc
+import Outputable (Outputable(..))
 
 import Control.Exception
 import Control.Monad.Reader
@@ -40,12 +42,12 @@ type Exporter n = n -> TrfType ()
 class IsRdrName n where
   toRdrName :: n -> RdrName
 
-class (DataId n, HasOccName n, HsHasName n, IsRdrName n) => HsName n where
-  exportName :: Located n -> TrfType ()
-  exportNameOrRdrName :: Located (NameOrRdrName n) -> TrfType ()
-  exportFieldOccName :: Located (FieldOcc n) -> TrfType ()
-  exportAmbiguousFieldOccName :: Located (AmbiguousFieldOcc n) -> TrfType ()
-  exportAmbiguousOperator :: Located (AmbiguousFieldOcc n) -> TrfType ()
+class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n) => HsName n where
+  exportName :: Exporter (Located n)
+  exportOperator :: Exporter (Located n)
+  exportRnName :: (forall x . HsName x => Exporter (Located x)) -> Located RdrName -> Exporter (Located (PostRn n n))
+  exportNameOrRdrName :: (forall x . HsName x => Exporter (Located x)) -> Exporter (Located (NameOrRdrName n))
+  exportFieldOccName :: Exporter (Located (FieldOcc n))
 
 goInto :: Maybe RowID -> Int -> TrfType a -> TrfType a
 goInto (Just id) ref = local (\s -> s { parentData = Just (id, ref) })
@@ -91,7 +93,8 @@ lookupNameNode = prepared $ \file start_row start_col -> do
   restrict $ file .== n ! node_file
               .&& start_row .== n ! node_start_row
               .&& start_col .== n ! node_start_col
-              .&& int (typeId (undefined :: Schema.Name)) .== n ! node_type
+              .&& (n ! node_type .== int (typeId (undefined :: Schema.Name))
+                    .|| n ! node_type .== int (typeId (undefined :: Schema.Operator)))
   return (n ! node_id)
 
 writeName :: SrcSpan -> Name -> TrfType ()
@@ -163,6 +166,18 @@ instance Exception ExportException where
 
 --------------------------------------------------------------------------
 
+-- | Update column information in a source location
+updateCol :: (Int -> Int) -> SrcLoc -> SrcLoc
+updateCol _ loc@(UnhelpfulLoc _) = loc
+updateCol f (RealSrcLoc loc) = mkSrcLoc (srcLocFile loc) (srcLocLine loc) (f $ srcLocCol loc)
+
+-- | Update the start of the src span
+updateStart :: (SrcLoc -> SrcLoc) -> SrcSpan -> SrcSpan
+updateStart f sp = mkSrcSpan (f (srcSpanStart sp)) (srcSpanEnd sp)
+
+-- | Update the end of the src span
+updateEnd :: (SrcLoc -> SrcLoc) -> SrcSpan -> SrcSpan
+updateEnd f sp = mkSrcSpan (srcSpanStart sp) (f (srcSpanEnd sp))
 
 class HsHasName a where
   hsGetNames :: a -> [GHC.Name]

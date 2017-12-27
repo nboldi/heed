@@ -66,10 +66,10 @@ data Literal = Character | PrimitiveCharacter | String | PrimitiveString | Primi
   deriving Data
 
 
-data Name = Normal | Paren
+data Name = NormalName | ParenName
   deriving Data
 
-data Operator = NormalOp | Backtick
+data Operator = NormalOperator | BacktickOperator
   deriving Data
 
 data FieldUpdates = FieldUpdates deriving Data
@@ -98,6 +98,15 @@ data ListComprehensionBody = ListCompBody
 data ListComprehensionStatement = ThenS | GroupS | NormalS
   deriving Data
 
+data ImplicitName = ImplicitName
+  deriving Data
+
+data Qualifiers = Qualifiers
+  deriving Data
+
+data UnqualifiedName = UnqualifiedName
+  deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -106,5 +115,5 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''Name, ''Operator, ''Type, ''TypeSignature, ''FixitySignature, ''LocalBindings
                 , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard, ''Promoted
                 , ''TypeVariable, ''Context, ''Predicate, ''Statement, ''ListComprehensionBody
-                , ''ListComprehensionStatement ])
+                , ''ListComprehensionStatement, ''ImplicitName, ''Qualifiers, ''UnqualifiedName ])
  )

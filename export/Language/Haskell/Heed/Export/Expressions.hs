@@ -19,14 +19,16 @@ import HsBinds
 import HsLit
 import HsTypes
 import BasicTypes (Boxity(..))
+import OccName
 import SrcLoc
 
 exportExpression :: HsName n => Exporter (Located (HsExpr n))
 exportExpression (L l (OpApp e1 (L _ (HsVar op)) _ e2))
-  = export InfixAppE l [ exportExpression e1, exportName op, exportExpression e2 ]
+  = export InfixAppE l [ exportExpression e1, exportOperator op, exportExpression e2 ]
 exportExpression (L l (HsVar name)) = export VarE l [ exportName name ]
--- exportExpression (L l (HsUnboundVar name)) = AST.UVar <$> trfNameText (occNameString $ unboundVarOcc name)
-exportExpression (L l (HsRecFld fld)) = export VarE l [ exportAmbiguousFieldOccName (L l fld) ]
+exportExpression (L l (HsUnboundVar name))
+  = export VarE l [ writeStringAttribute (occNameString (unboundVarOcc name)) ]
+exportExpression (L l (HsRecFld fld)) = export VarE l [ exportAmbiguousFieldName (L l fld) ]
 exportExpression (L l (HsIPVar ip)) = export VarE l [ exportImplicitName (L l ip) ]
 exportExpression (L l (HsOverLit (ol_val -> val))) = export LiteralE l [ exportPolyLiteral (L l val) ]
 exportExpression (L l (HsLit val)) = export LiteralE l [ exportMonoLiteral (L l val) ]
@@ -74,8 +76,6 @@ exportExpression (L l (HsDo MDoExpr (unLoc -> [unLoc -> RecStmt { recS_stmts = s
   = export MDoE l [ scopedSequence (exportDoStatement exportExpression) (stmts ++ [lastStmt]) ]
 exportExpression (L l (HsDo MDoExpr (unLoc -> stmts) _))
   = export MDoE l [ scopedSequence (exportDoStatement exportExpression) stmts ]
-exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))
-  = export DoE l [ scopedSequence (exportDoStatement exportExpression) stmts ]
 exportExpression (L l (HsDo ListComp (unLoc -> stmts) _))
   = export ListCompE l [ exportListCompStatements stmts ]
 exportExpression (L l (HsDo MonadComp (unLoc -> stmts) _))
@@ -157,9 +157,9 @@ exportFieldInit (L l (HsRecField lbl arg False))
   = export NormalFieldUpdate l [ exportFieldOccName lbl, exportExpression arg ]
 
 exportFieldUpdate :: HsName n => Exporter (Located (HsRecField' (AmbiguousFieldOcc n) (LHsExpr n)))
-exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguousFieldOccName lbl ]
+exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguousFieldName lbl ]
 exportFieldUpdate (L l (HsRecField lbl val False))
-  = export NormalFieldUpdate l [ exportAmbiguousFieldOccName lbl, exportExpression val ]
+  = export NormalFieldUpdate l [ exportAmbiguousFieldName lbl, exportExpression val ]
 --
 -- trfCmdTop :: TransformName n r => Located (HsCmdTop n) -> Trf (Ann AST.UCmd (Dom r) RangeStage)
 -- trfCmdTop (L _ (HsCmdTop cmd _ _ _)) = trfCmd cmd
