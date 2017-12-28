@@ -23,6 +23,29 @@ exportBinding :: HsName n => Exporter (Located (HsBind n))
 exportBinding (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _)) =
   export FunctionB l [ mapM_ exportMatch matches ]
 
+-- trfBind' :: TransformName n r => HsBind n -> Trf (AST.UValueBind (Dom r) RangeStage)
+-- -- A value binding with a strcitness annotation
+-- trfBind' (FunBind { fun_id = id, fun_matches = MG { mg_alts = L _ [L _ (Match { m_ctxt = FunRhs { mc_strictness = SrcStrict }, m_pats = [], m_grhss = GRHSs [L _ (GRHS [] expr)] (L _ locals) })]} })
+--   = do bangLoc <- focusBeforeLoc (srcSpanStart $ getLoc id) $ tokenLoc AnnBang
+--        AST.USimpleBind <$> annLocNoSema (pure $ combineSrcSpans bangLoc (getLoc id))
+--                              (AST.UBangPat <$> copyAnnot AST.UVarPat (define $ trfName id))
+--                        <*> addEmptyScope (addToScope locals (annLocNoSema (combineSrcSpans (getLoc expr) <$> tokenLoc AnnEqual) (AST.UUnguardedRhs <$> trfExpr expr)))
+--                        <*> addEmptyScope (trfWhereLocalBinds (getLoc expr) locals)
+-- -- A value binding (not a function)
+-- trfBind' (FunBind { fun_id = id, fun_matches = MG { mg_alts = L _ [L _ (Match { m_pats = [], m_grhss = GRHSs [L _ (GRHS [] expr)] (L _ locals) })]} })
+--   = AST.USimpleBind <$> copyAnnot AST.UVarPat (define $ trfName id)
+--                     <*> addEmptyScope (addToScope locals (annLocNoSema (combineSrcSpans (getLoc expr) <$> tokenLoc AnnEqual) (AST.UUnguardedRhs <$> trfExpr expr)))
+--                     <*> addEmptyScope (trfWhereLocalBinds (getLoc expr) locals)
+-- trfBind' (FunBind id (MG (unLoc -> matches) _ _ _) _ _ _)
+--   = AST.UFunBind <$> makeNonemptyIndentedList (mapM (trfMatch (unLoc id)) matches)
+-- trfBind' (PatBind pat (GRHSs rhs (unLoc -> locals)) _ _ _)
+--   = AST.USimpleBind <$> trfPattern pat
+--                     <*> addEmptyScope (addToScope locals (trfRhss rhs))
+--                     <*> addEmptyScope (trfWhereLocalBinds (collectLocs rhs) locals)
+-- trfBind' (PatSynBind _) = convertionProblem "Pattern synonym bindings should be recognized on the declaration level"
+-- trfBind' b = unhandledElement "binding" b
+--
+
 exportMatch :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
 exportMatch (L l (GHC.Match name pats _ (GRHSs rhss (L _ locBinds)))) = do
   id <- writeInsert Match l
@@ -80,31 +103,8 @@ exportFixitySignature (L l (FixitySig names (Fixity _ prec InfixR)))
 exportFixitySignature (L l (FixitySig names (Fixity _ prec InfixN)))
   = export FixitySignature l [ writeIntAttribute prec ]
 
--- trfBind :: TransformName n r => Located (HsBind n) -> Trf (Ann AST.UValueBind (Dom r) RangeStage)
--- trfBind = trfLocNoSema trfBind'
---
--- trfBind' :: TransformName n r => HsBind n -> Trf (AST.UValueBind (Dom r) RangeStage)
--- -- A value binding with a strcitness annotation
--- trfBind' (FunBind { fun_id = id, fun_matches = MG { mg_alts = L _ [L _ (Match { m_ctxt = FunRhs { mc_strictness = SrcStrict }, m_pats = [], m_grhss = GRHSs [L _ (GRHS [] expr)] (L _ locals) })]} })
---   = do bangLoc <- focusBeforeLoc (srcSpanStart $ getLoc id) $ tokenLoc AnnBang
---        AST.USimpleBind <$> annLocNoSema (pure $ combineSrcSpans bangLoc (getLoc id))
---                              (AST.UBangPat <$> copyAnnot AST.UVarPat (define $ trfName id))
---                        <*> addEmptyScope (addToScope locals (annLocNoSema (combineSrcSpans (getLoc expr) <$> tokenLoc AnnEqual) (AST.UUnguardedRhs <$> trfExpr expr)))
---                        <*> addEmptyScope (trfWhereLocalBinds (getLoc expr) locals)
--- -- A value binding (not a function)
--- trfBind' (FunBind { fun_id = id, fun_matches = MG { mg_alts = L _ [L _ (Match { m_pats = [], m_grhss = GRHSs [L _ (GRHS [] expr)] (L _ locals) })]} })
---   = AST.USimpleBind <$> copyAnnot AST.UVarPat (define $ trfName id)
---                     <*> addEmptyScope (addToScope locals (annLocNoSema (combineSrcSpans (getLoc expr) <$> tokenLoc AnnEqual) (AST.UUnguardedRhs <$> trfExpr expr)))
---                     <*> addEmptyScope (trfWhereLocalBinds (getLoc expr) locals)
--- trfBind' (FunBind id (MG (unLoc -> matches) _ _ _) _ _ _)
---   = AST.UFunBind <$> makeNonemptyIndentedList (mapM (trfMatch (unLoc id)) matches)
--- trfBind' (PatBind pat (GRHSs rhs (unLoc -> locals)) _ _ _)
---   = AST.USimpleBind <$> trfPattern pat
---                     <*> addEmptyScope (addToScope locals (trfRhss rhs))
---                     <*> addEmptyScope (trfWhereLocalBinds (collectLocs rhs) locals)
--- trfBind' (PatSynBind _) = convertionProblem "Pattern synonym bindings should be recognized on the declaration level"
--- trfBind' b = unhandledElement "binding" b
---
+
+
 -- trfMatch :: TransformName n r => n -> Located (Match n (LHsExpr n)) -> Trf (Ann AST.UMatch (Dom r) RangeStage)
 -- trfMatch id = trfLocNoSema (trfMatch' id)
 --

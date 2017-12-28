@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-} -- export functions must be total
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ViewPatterns #-}
 module Language.Haskell.Heed.Export.Kinds where

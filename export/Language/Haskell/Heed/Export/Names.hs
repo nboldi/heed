@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-} -- export functions must be total
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -74,6 +75,7 @@ exportQualifiers (RealSrcSpan sp) str
       [ writeStringAttribute (take lastDot str) ]
   where lastDot = case elemIndices '.' str of inds@(_:_) -> last inds; [] -> -1
         qualEndPos = foldl advanceSrcLoc (realSrcSpanStart sp) (take lastDot str)
+exportQualifiers sp _ = exportError "qualifiers" sp
 
 exportUnqualified :: SrcSpan -> Exporter String
 exportUnqualified (RealSrcSpan sp) str
@@ -81,19 +83,5 @@ exportUnqualified (RealSrcSpan sp) str
       [ writeStringAttribute (drop (lastDot + 1) str) ]
   where lastDot = case elemIndices '.' str of inds@(_:_) -> last inds; [] -> -1
         qualStartPos = foldl advanceSrcLoc (realSrcSpanStart sp) (take (lastDot + 1) str)
-
-
--- trfNameStr :: Bool -> String -> Trf (AnnListG AST.UNamePart (Dom r) RangeStage)
--- trfNameStr isInBackticks str = makeList "." atTheStart (trfNameStr' str . correct <$> atTheStart)
---   where correct = if isInBackticks then updateCol (+1) else id
---
--- trfNameStr' :: String -> SrcLoc -> [Ann AST.UNamePart (Dom r) RangeStage]
--- trfNameStr' str startLoc = fst $
---   foldl (\(r,loc) np -> let nextLoc = advanceAllSrcLoc loc np
---                          in ( r ++ [Ann (noSemaInfo $ AST.NodeSpan (mkSrcSpan loc nextLoc)) (AST.UNamePart np)], advanceAllSrcLoc nextLoc "." ) )
---   ([], startLoc) (splitOn "." str)
---   where -- | Move the source location according to a string
---         advanceAllSrcLoc :: SrcLoc -> String -> SrcLoc
---         advanceAllSrcLoc (RealSrcLoc rl) str = RealSrcLoc $ foldl advanceSrcLoc rl str
---         advanceAllSrcLoc oth _ = oth
+exportUnqualified sp _ = exportError "unqualified name" sp
 

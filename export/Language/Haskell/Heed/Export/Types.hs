@@ -1,11 +1,11 @@
--- TODO: force completeness with  {-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-}
+{-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-} -- export functions must be total
 {-# LANGUAGE ViewPatterns #-}
 module Language.Haskell.Heed.Export.Types where
 
 import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Kinds
 import Language.Haskell.Heed.Export.Literals
-import Language.Haskell.Heed.Export.Templates
+import {-# SOURCE #-} Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema
 

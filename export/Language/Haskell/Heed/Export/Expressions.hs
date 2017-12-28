@@ -7,7 +7,7 @@ import Language.Haskell.Heed.Export.Patterns
 import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Literals
 import Language.Haskell.Heed.Export.Types
-import Language.Haskell.Heed.Export.Templates
+import {-# SOURCE #-} Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Statements
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import Language.Haskell.Heed.Export.Utilities

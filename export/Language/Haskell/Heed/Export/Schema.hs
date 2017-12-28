@@ -107,6 +107,15 @@ data Qualifiers = Qualifiers
 data UnqualifiedName = UnqualifiedName
   deriving Data
 
+data Splice = Splice
+  deriving Data
+
+data QuasiQuotation = QuasiQuotation
+  deriving Data
+
+data Bracket = ExprBracket | PatternBracket | TypeBracket | DeclarationBracket
+  deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -115,5 +124,6 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''Name, ''Operator, ''Type, ''TypeSignature, ''FixitySignature, ''LocalBindings
                 , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard, ''Promoted
                 , ''TypeVariable, ''Context, ''Predicate, ''Statement, ''ListComprehensionBody
-                , ''ListComprehensionStatement, ''ImplicitName, ''Qualifiers, ''UnqualifiedName ])
+                , ''ListComprehensionStatement, ''ImplicitName, ''Qualifiers, ''UnqualifiedName
+                , ''Splice, ''QuasiQuotation, ''Bracket])
  )

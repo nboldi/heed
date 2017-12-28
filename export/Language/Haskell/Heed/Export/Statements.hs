@@ -3,7 +3,6 @@ module Language.Haskell.Heed.Export.Statements where
 
 import Language.Haskell.Heed.Export.Patterns
 import Language.Haskell.Heed.Export.Names
-import Language.Haskell.Heed.Export.Templates
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Expressions
 import Language.Haskell.Heed.Export.Utilities

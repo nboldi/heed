@@ -1,4 +1,4 @@
--- {-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-} -- export functions must be total
+{-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-} -- export functions must be total
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ViewPatterns #-}
 module Language.Haskell.Heed.Export.Patterns (exportPattern, exportPatternField) where
@@ -6,7 +6,7 @@ module Language.Haskell.Heed.Export.Patterns (exportPattern, exportPatternField)
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Expressions
 import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Literals
-import Language.Haskell.Heed.Export.Templates
+import {-# SOURCE #-} Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema
