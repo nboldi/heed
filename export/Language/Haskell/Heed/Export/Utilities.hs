@@ -14,6 +14,7 @@ import Outputable (showSDocUnsafe, ppr)
 import Name
 import SrcLoc
 import Outputable (Outputable(..))
+import Bag
 
 import Control.Exception
 import Control.Monad.Reader
@@ -42,7 +43,19 @@ type Exporter n = n -> TrfType ()
 class IsRdrName n where
   toRdrName :: n -> RdrName
 
-class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n) => HsName n where
+class CompilationPhase n where
+  getBindsAndSigs :: HsValBinds n -> ([LSig n], LHsBinds n)
+
+instance CompilationPhase RdrName where
+  getBindsAndSigs (ValBindsIn binds sigs) = (sigs, binds)
+  getBindsAndSigs _ = error "getBindsAndSigs: ValBindsOut in parsed source"
+
+instance CompilationPhase Name where
+  getBindsAndSigs (ValBindsOut bindGroups sigs) = (sigs, unionManyBags (map snd bindGroups))
+  getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
+
+class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, CompilationPhase n)
+      => HsName n where
   exportName :: Exporter (Located n)
   exportOperator :: Exporter (Located n)
   exportRnName :: (forall x . HsName x => Exporter (Located x)) -> Located RdrName -> Exporter (Located (PostRn n n))

@@ -10,7 +10,8 @@ class Data t => Schema t where
 
 data Module = Module deriving Data
 
-data Declaration = BindingD deriving Data
+data Declaration = BindingD | TypeSynonymD | DataD
+  deriving Data
 
 data Binding = FunctionB | SimpleB deriving Data
 
@@ -124,6 +125,11 @@ data InlinePragma = InlinablePragma | NoInlinePragma | InlinePragma
 data Phase = NoPhase | AfterPhase | BeforePhase
   deriving Data
 
+data Constructor = Constructor | RecordConstructor | InfixConstructor
+  deriving Data
+
+data FieldDecl = FieldDecl deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -133,5 +139,6 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard, ''Promoted
                 , ''TypeVariable, ''Context, ''Predicate, ''Statement, ''ListComprehensionBody
                 , ''ListComprehensionStatement, ''ImplicitName, ''Qualifiers, ''UnqualifiedName
-                , ''Splice, ''QuasiQuotation, ''Bracket, ''GuardStmt, ''InlinePragma, ''Phase])
+                , ''Splice, ''QuasiQuotation, ''Bracket, ''GuardStmt, ''InlinePragma, ''Phase
+                , ''Constructor, ''FieldDecl ])
  )
