@@ -74,6 +74,9 @@ writeInsert' ctor loc = do
 writeIntAttribute :: Int -> TrfType ()
 writeIntAttribute i = writeAttribute (Nothing :*: Just i :*: Nothing)
 
+writeBoolAttribute :: Bool -> TrfType ()
+writeBoolAttribute b = writeAttribute (Nothing :*: Just (if b then 1 else 0) :*: Nothing)
+
 writeStringAttribute :: String -> TrfType ()
 writeStringAttribute s = writeAttribute (Just (pack s) :*: Nothing :*: Nothing)
 

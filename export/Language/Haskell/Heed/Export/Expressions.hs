@@ -63,11 +63,11 @@ exportExpression (L l (ExplicitTuple tupArgs box))
                     (Unboxed, False) -> UnboxedTupleSectionE
 exportExpression (L l (HsCase expr (unLoc . mg_alts -> cases)))
   = addToScope (combineLocated cases)
-      $ export LambdaCaseE l [ exportExpression expr, mapM_ exportAlternative cases ]
+      $ export LambdaCaseE l [ exportExpression expr, mapM_ exportMatch cases ]
 exportExpression (L l (HsIf _ expr thenE elseE))
   = export IfE l [ exportExpression expr, exportExpression thenE, exportExpression elseE ]
 exportExpression (L l (HsMultiIf _ parts))
-  = export MultiIfE l [ mapM_ exportCaseRhss parts ]
+  = export MultiIfE l [ mapM_ exportRhss parts ]
 exportExpression (L l (HsLet (unLoc -> binds) expr))
   = addToScope l $ export LetE l [ exportLocalBinds (L l binds), exportExpression expr ]
 exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))

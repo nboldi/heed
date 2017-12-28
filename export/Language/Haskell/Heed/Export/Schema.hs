@@ -12,19 +12,18 @@ data Module = Module deriving Data
 
 data Declaration = BindingD deriving Data
 
-data Binding = FunctionB deriving Data
+data Binding = FunctionB | SimpleB deriving Data
 
 data Match = Match deriving Data
 
 data LocalBindings = LocalBindings deriving Data
 
-data LocalBinding = LocalValueBind | LocalTypeSignature | LocalFixitySignature deriving Data
+data LocalBinding = LocalValueBind | LocalTypeSignature | LocalFixitySignature | LocalInline
+  deriving Data
 
 data Alternative = Alternative deriving Data
 
-data Rhs = Unguarded deriving Data
-
-data CaseRhs = UnguardedC deriving Data
+data Rhs = UnguardedRhs | GuardedRhss deriving Data
 
 data Expression = VarE | InfixAppE | LiteralE | LambdaE | LambdaCaseE | AppE | PrefixAppE
                 | RightSectionE | LeftSectionE | ParenE | TupleE | TupleSectionE | UnboxedTupleE
@@ -116,14 +115,23 @@ data QuasiQuotation = QuasiQuotation
 data Bracket = ExprBracket | PatternBracket | TypeBracket | DeclarationBracket
   deriving Data
 
+data GuardStmt = GuardBind | GuardBody | GuardLet
+  deriving Data
+
+data InlinePragma = InlinablePragma | NoInlinePragma | InlinePragma
+  deriving Data
+
+data Phase = NoPhase | AfterPhase | BeforePhase
+  deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
-     (zip [0..] [ ''Module, ''Declaration, ''Binding, ''Match, ''Alternative, ''Rhs, ''CaseRhs
+     (zip [0..] [ ''Module, ''Declaration, ''Binding, ''Match, ''Alternative, ''Rhs
                 , ''Expression, ''Pattern, ''PatternField, ''KindSignature, ''Kind, ''Literal
                 , ''Name, ''Operator, ''Type, ''TypeSignature, ''FixitySignature, ''LocalBindings
                 , ''LocalBinding, ''FieldUpdates, ''FieldUpdate, ''FieldWildcard, ''Promoted
                 , ''TypeVariable, ''Context, ''Predicate, ''Statement, ''ListComprehensionBody
                 , ''ListComprehensionStatement, ''ImplicitName, ''Qualifiers, ''UnqualifiedName
-                , ''Splice, ''QuasiQuotation, ''Bracket])
+                , ''Splice, ''QuasiQuotation, ''Bracket, ''GuardStmt, ''InlinePragma, ''Phase])
  )
