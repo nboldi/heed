@@ -10,7 +10,10 @@ class Data t => Schema t where
 
 data Module = Module deriving Data
 
-data Declaration = BindingD | TypeSynonymD | DataD
+data Declaration = BindingD | TypeSynonymD | DataD | TypeSignatureD | PatternSignatureD
+                 | FixitySignatureD | PragmaD | PatternSynonymD | GDataD | ClassD | InstanceD
+                 | ClosedFamilyD | TypeFamilyD | DataInstanceD | TypeInstanceD | DerivingD
+                 | RoleD | DefaultD | ForeignImportD | ForeignExportD
   deriving Data
 
 data Binding = FunctionB | SimpleB deriving Data
@@ -19,7 +22,7 @@ data Match = Match deriving Data
 
 data LocalBindings = LocalBindings deriving Data
 
-data LocalBinding = LocalValueBind | LocalTypeSignature | LocalFixitySignature | LocalInline
+data LocalBinding = LocalValueBind | LocalTypeSignature | LocalFixitySignature | LocalPragma
   deriving Data
 
 data Alternative = Alternative deriving Data
@@ -130,6 +133,72 @@ data Constructor = Constructor | RecordConstructor | InfixConstructor
 
 data FieldDecl = FieldDecl deriving Data
 
+data Derivings = Derivings deriving Data
+
+data DerivingStrategy = StockDerivingStrat | AnyClassDerivingStrat | NewtypeDerivingStrat
+  deriving Data
+
+data InstanceHead = ConstructorIH | ApplicationIH | ParenIH | InfixIH
+  deriving Data
+
+data SpecializePragma = SpecializePragma deriving Data
+
+data CompletePragma = CompletePragma deriving Data
+
+data PatternSynonymLhs = PrefixPatSynLhs | InfixPatSynLhs | RecordPatSynLhs
+  deriving Data
+
+data PatternSynonymRhs = BidirectionalPatSyn | ExplicitBidirectionalPatSyn | UnidirectionalPatSyn
+  deriving Data
+
+data NewtypeKeyword = NewType | DataType deriving Data
+
+data GADTType = GADTRecordType | GADTNormalType deriving Data
+
+data GADTConstructor = GADTConstructor deriving Data
+
+data DeclarationHead = PrefixDH | InfixDH deriving Data
+
+data FunctionalDependency = FunctionalDependency deriving Data
+
+data ClassElement = ClassBinding | ClassTypeFamily | ClassTypeSignature | ClassFixitySignature
+                  | ClassDefaultSignature | ClassMinimalSignature | ClassInlinePragma
+                  | ClassTypeFamilyDefault
+  deriving Data
+
+data MinimalFormula = MinimalName | MinimalAnd | MinimalOr | MinimalParen
+  deriving Data
+
+data InstanceRule = InstanceRule deriving Data
+
+data TypeEquation = InfixTypeEquation | PrefixTypeEquation deriving Data
+
+data TypeFamilySignature = TFKindSig | TFTyVarSig | TFInjectivitySig deriving Data
+
+data TypeFamily = TypeFamily | DataFamily deriving Data
+
+data CallConv = CCC | CApiCC | StdCC | JavaScriptCC | PrimCC deriving Data
+
+data Safety = Safe | Interruptible | Unsafe deriving Data
+
+data Overlap = DisableOverlap | Overlappable | Overlapping | Overlaps | IncoherentOverlap
+  deriving Data
+
+data Role = NominalRole | RepresentationalRole | PhantomRole deriving Data
+
+data InstanceElement = InstanceBinding | InstanceTypeSig | InstanceSpecialize
+                     | InstanceSpecializeInstance | InstanceInline | InstanceTypeFamily
+                     | InstanceDataDecl | InstanceGDataDecl
+  deriving Data
+
+data InjectivityAnnot = InjectivityAnnot deriving Data
+
+data TopLevelPragma = RulePragma deriving Data
+
+data RewriteRule = RewriteRule deriving Data
+
+data RuleVar = RuleVar | RuleSigVar deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -140,5 +209,12 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''TypeVariable, ''Context, ''Predicate, ''Statement, ''ListComprehensionBody
                 , ''ListComprehensionStatement, ''ImplicitName, ''Qualifiers, ''UnqualifiedName
                 , ''Splice, ''QuasiQuotation, ''Bracket, ''GuardStmt, ''InlinePragma, ''Phase
-                , ''Constructor, ''FieldDecl ])
+                , ''Constructor, ''FieldDecl, ''Derivings, ''DerivingStrategy, ''InstanceHead
+                , ''SpecializePragma, ''CompletePragma, ''PatternSynonymLhs, ''PatternSynonymRhs
+                , ''NewtypeKeyword, ''GADTType, ''GADTConstructor, ''DeclarationHead
+                , ''FunctionalDependency, ''ClassElement, ''MinimalFormula, ''InstanceRule
+                , ''TypeEquation, ''TypeFamilySignature, ''TypeFamily, ''CallConv, ''Safety
+                , ''Overlap, ''Role, ''InstanceElement, ''InjectivityAnnot, ''TopLevelPragma
+                , ''RewriteRule, ''RuleVar
+                ])
  )

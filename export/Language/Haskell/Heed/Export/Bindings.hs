@@ -77,7 +77,7 @@ exportLocalSig :: HsName n => Exporter (Located (Sig n))
 exportLocalSig ts@(L l (TypeSig {})) = export LocalTypeSignature l [exportTypeSignature ts]
 exportLocalSig (L l (FixSig fs)) = export LocalFixitySignature l [exportFixitySignature (L l fs)]
 exportLocalSig (L l (InlineSig name prag))
-  = export LocalInline l [ exportName name, exportInlinePragma (L l prag) ]
+  = export LocalPragma l [ export Schema.InlinePragma l [exportName name, exportInlinePragma (L l prag)] ]
 exportLocalSig (L l ls) = exportError "local signature" ls
 
 exportTypeSignature :: HsName n => Exporter (Located (Sig n))

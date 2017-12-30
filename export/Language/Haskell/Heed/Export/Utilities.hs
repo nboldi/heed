@@ -146,6 +146,9 @@ spanData sp = case sp of RealSrcSpan rsp -> ( unpackFS (srcSpanFile rsp)
 combineLocated :: [Located a] -> SrcSpan
 combineLocated = foldl combineSrcSpans noSrcSpan . map getLoc
 
+combineSpans :: [SrcSpan] -> SrcSpan
+combineSpans = foldl combineSrcSpans noSrcSpan
+
 -------------------------------------------------------------------------
 
 addToScope :: SrcSpan -> TrfType () -> TrfType ()
