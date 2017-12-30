@@ -13,7 +13,7 @@ data Module = Module deriving Data
 data Declaration = BindingD | TypeSynonymD | DataD | TypeSignatureD | PatternSignatureD
                  | FixitySignatureD | PragmaD | PatternSynonymD | GDataD | ClassD | InstanceD
                  | ClosedFamilyD | TypeFamilyD | DataInstanceD | TypeInstanceD | DerivingD
-                 | RoleD | DefaultD | ForeignImportD | ForeignExportD
+                 | RoleD | DefaultD | ForeignImportD | ForeignExportD | SpliceD
   deriving Data
 
 data Binding = FunctionB | SimpleB deriving Data
@@ -199,6 +199,22 @@ data RewriteRule = RewriteRule deriving Data
 
 data RuleVar = RuleVar | RuleSigVar deriving Data
 
+data ModuleName = ModuleName deriving Data
+
+data ImportDecl = ImportDecl deriving Data
+
+data ImportSource = ImportSource deriving Data
+data ImportSafe = ImportSafe deriving Data
+data ImportQualified = ImportQualified deriving Data
+
+data ExportSpec = NormalExport | ModuleExport deriving Data
+
+data ImportSpec = ImportHiding | ImportSpecList deriving Data
+
+data IESpec = IESpec deriving Data
+
+data IESubSpec = IESubspecAll | IESubspecList deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -215,6 +231,7 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''FunctionalDependency, ''ClassElement, ''MinimalFormula, ''InstanceRule
                 , ''TypeEquation, ''TypeFamilySignature, ''TypeFamily, ''CallConv, ''Safety
                 , ''Overlap, ''Role, ''InstanceElement, ''InjectivityAnnot, ''TopLevelPragma
-                , ''RewriteRule, ''RuleVar
+                , ''RewriteRule, ''RuleVar, ''ModuleName, ''ImportDecl, ''ImportSafe, ''ImportSource
+                , ''ImportQualified, ''ExportSpec, ''ImportSpec, ''IESpec, ''IESubSpec
                 ])
  )

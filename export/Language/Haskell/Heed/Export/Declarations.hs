@@ -8,7 +8,7 @@ import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Patterns
 import Language.Haskell.Heed.Export.Expressions
 import Language.Haskell.Heed.Export.Types
-import Language.Haskell.Heed.Export.Templates
+import {-# SOURCE #-} Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Kinds
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema as Schema
@@ -32,7 +32,7 @@ exportDeclarationGroup g@(HsGroup vals splices tycls derivs fixities defaults fo
   = addToScope (combineLocated allDecls)
       $ goInto Nothing 1 $ mapM_ exportDeclaration allDecls
   where (sigs, bagToList -> binds) = getBindsAndSigs vals
-        allDecls = (map (fmap SpliceD) splices)
+        allDecls = (map (fmap GHC.SpliceD) splices)
                       ++ (map (fmap ValD) binds)
                       ++ (map (fmap SigD) sigs)
                       ++ (map (fmap TyClD) (concat $ map group_tyclds tycls))
@@ -127,7 +127,7 @@ exportDeclaration (L l (ForD (ForeignImport name (hsib_body -> typ) _ (CImport c
   = export ForeignImportD l [ exportCallConvention ccall, exportSafety safe, defining (exportName name), exportType typ ]
 exportDeclaration (L l (ForD (ForeignExport name (hsib_body -> typ) _ (CExport (L lc (CExportStatic _ _ ccall)) _))))
   = export ForeignExportD l [ exportCallConvention (L lc ccall), exportName name, exportType typ ]
-exportDeclaration (L l (SpliceD (SpliceDecl spl _))) = export SpliceD l [ exportSplice spl ]
+exportDeclaration (L l (GHC.SpliceD (SpliceDecl spl _))) = export Schema.SpliceD l [ exportSplice spl ]
 exportDeclaration (L l (WarningD _)) = return () -- TODO: warnings
 exportDeclaration (L l (AnnD _)) = return () -- TODO: annotations
 exportDeclaration (L l d) = exportError "declaration" d
