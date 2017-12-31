@@ -12,6 +12,7 @@ import GHC
 import FastString
 import Outputable (showSDocUnsafe, ppr)
 import Name
+import Id
 import SrcLoc
 import Outputable (Outputable(..))
 import Bag
@@ -52,6 +53,10 @@ instance CompilationPhase RdrName where
 
 instance CompilationPhase Name where
   getBindsAndSigs (ValBindsOut bindGroups sigs) = (sigs, unionManyBags (map snd bindGroups))
+  getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
+
+instance CompilationPhase Id where
+  getBindsAndSigs (ValBindsOut bindGroups _) = ([], unionManyBags (map snd bindGroups))
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
 
 class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, CompilationPhase n)
@@ -135,6 +140,16 @@ writeName sp name = do
   lift $ insert_ names [ Just nodeId :*: sc :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
                            :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
 
+writeType :: SrcSpan -> Id -> TrfType ()
+writeType sp id = do
+  let (file, start_row, start_col, _, _) = spanData sp
+      annot = showSDocUnsafe $ ppr $ idType id
+  nodeIds <- lift $ lookupNameNode (pack file) start_row start_col
+  case nodeIds of
+    [nodeId] -> lift $ insert_ types [ nodeId :*: pack annot ]
+    _ -> liftIO $ putStrLn $ "Could not insert type annotation '" ++ annot ++ "' on node at: " ++ show (file, start_row, start_col)
+
+
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
 spanData sp = case sp of RealSrcSpan rsp -> ( unpackFS (srcSpanFile rsp)
                                             , srcSpanStartLine rsp
@@ -206,6 +221,9 @@ instance HsHasName RdrName where
 
 instance HsHasName Name where
   hsGetNames n = [n]
+
+instance HsHasName Id where
+  hsGetNames n = [idName n]
 
 instance HsHasName e => HsHasName [e] where
   hsGetNames es = concatMap hsGetNames es

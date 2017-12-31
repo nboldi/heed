@@ -7,8 +7,10 @@ import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema as Schema
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Data.Data
 import Bag
+import GHC
 import Module as GHC
 import HsSyn
 import FieldLabel
@@ -16,6 +18,11 @@ import BasicTypes
 import FastString
 import SrcLoc
 import HsImpExp as GHC
+
+exportTcModule :: Exporter TypecheckedSource
+exportTcModule binds
+  = do liftIO $ putStrLn "exportTcModule"
+       mapM_ exportBinding (bagToList binds)
 
 exportRnModule :: HsName n => Exporter (HsGroup n, [LImportDecl n], Maybe [LIE n], Maybe LHsDocString)
 exportRnModule (gr,imports,exps,_)

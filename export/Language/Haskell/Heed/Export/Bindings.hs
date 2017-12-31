@@ -39,7 +39,10 @@ exportBinding (L l (FunBind { fun_id = id
                      ]
 exportBinding (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _))
   = export FunctionB l [ mapM_ exportMatch matches ]
-exportBinding (L l bind@(PatSynBind{})) = exportError "binding" bind --  Pattern synonym bindings should be recognized on the declaration level
+exportBinding (L l (VarBind {})) = return () -- not a source binding
+exportBinding (L l b@(AbsBinds {})) = mapM_ exportBinding (abs_binds b)
+exportBinding (L l b@(AbsBindsSig {})) = exportBinding (abs_sig_bind b)
+exportBinding (L l bind) = exportError "binding" bind --  Pattern synonym bindings should be recognized on the declaration level
 
 exportMatch :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
 exportMatch (L l (GHC.Match id pats _ (GRHSs rhss (L _ locBinds)))) = do
@@ -53,7 +56,7 @@ exportMatch (L l (GHC.Match id pats _ (GRHSs rhss (L _ locBinds)))) = do
     goInto node 3 $ mapM_ exportRhss rhss
 
 exportRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
-exportRhss (L l (GRHS [] body)) = export UnguardedRhs l [ return (), exportExpression body ]
+exportRhss (L l (GRHS [] body)) = export UnguardedRhs l [ exportExpression body ]
 exportRhss (L l (GRHS guards body)) = export GuardedRhss l [ scopedSequence exportRhsGuard guards
                                                            , exportExpression body ]
 
@@ -70,8 +73,7 @@ exportLocalBinds (L l (HsValBinds (ValBindsIn binds sigs)))
 exportLocalBinds (L l (HsValBinds (ValBindsOut binds sigs)))
   = export LocalBindings l [ mapM_ exportBinding (concatMap (bagToList . snd) binds) >> mapM_ exportLocalSig sigs ]
 exportLocalBinds bind@(L l (HsIPBinds (IPBinds binds _))) = mapM_ exportIPBind binds
-exportLocalBinds (L l lb) = exportError "local binds" lb
-
+exportLocalBinds (L l EmptyLocalBinds) = return ()
 
 exportLocalSig :: HsName n => Exporter (Located (Sig n))
 exportLocalSig ts@(L l (TypeSig {})) = export LocalTypeSignature l [exportTypeSignature ts]

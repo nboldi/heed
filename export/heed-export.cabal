@@ -13,7 +13,8 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules: Language.Haskell.Heed.Export.Modules
+  exposed-modules: Language.Haskell.Heed.Export.Export
+                   Language.Haskell.Heed.Export.Modules
                    Language.Haskell.Heed.Export.Declarations
                    Language.Haskell.Heed.Export.Bindings
                    Language.Haskell.Heed.Export.Expressions
@@ -34,6 +35,9 @@ library
                  , selda
                  , containers
                  , heed-core
+                 , selda
+                 , selda-sqlite
+                 , bytestring
                  , text
                  , template-haskell
   default-language:    Haskell2010
@@ -52,3 +56,15 @@ executable heed-export
                      , heed-export
   hs-source-dirs: exe
   default-language: Haskell2010
+
+test-suite heed-export-tests
+  type:                exitcode-stdio-1.0
+  main-is:             Main.hs
+  hs-source-dirs:      test
+  build-depends:       base >=4.10 && <4.11
+                     , tasty
+                     , tasty-hunit
+                     , heed-export
+  hs-source-dirs: test
+  default-language: Haskell2010
+

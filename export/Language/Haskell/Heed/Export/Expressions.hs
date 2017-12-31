@@ -141,7 +141,7 @@ exportExpression (L l (HsAppType expr typ))
 -- trfExpr' EWildPat = return AST.UHole
 -- trfExpr' t = unhandledElement "expression" t
 --
-
+exportExpression (L l (HsWrap _ expr)) = exportExpression (L l expr)
 exportExpression (L l expr) = exportError "expression" expr
 
 
