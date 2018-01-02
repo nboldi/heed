@@ -14,7 +14,7 @@ import Outputable (showSDocUnsafe, ppr)
 import Name
 import Id
 import SrcLoc
-import Outputable (Outputable(..))
+import Outputable (Outputable(..), OutputableBndr)
 import Bag
 
 import Control.Exception
@@ -28,14 +28,16 @@ import Language.Haskell.Heed.Export.Schema (Schema(..))
 import qualified Language.Haskell.Heed.Export.Schema as Schema
 
 data ExportState = ExportState { parentData :: Maybe (RowID, Int)
-                               , exportSyntax :: Bool
+                               , exportStage :: ExportStage
                                , compiledModule :: Module
                                , isDefining :: Bool
-                               , scope :: RowID
+                               , scope :: Maybe RowID
                                }
 
-initExportState :: Bool -> Module -> ExportState
-initExportState exportSyntax mod = ExportState Nothing exportSyntax mod False undefined
+data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
+
+initExportState :: ExportStage -> Module -> ExportState
+initExportState stage mod = ExportState Nothing stage mod False Nothing
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
 
@@ -44,7 +46,7 @@ type Exporter n = n -> TrfType ()
 class IsRdrName n where
   toRdrName :: n -> RdrName
 
-class CompilationPhase n where
+class (OutputableBndr n, OutputableBndr (NameOrRdrName n)) => CompilationPhase n where
   getBindsAndSigs :: HsValBinds n -> ([LSig n], LHsBinds n)
 
 instance CompilationPhase RdrName where
@@ -76,9 +78,9 @@ defining = local $ \s -> s { isDefining = True }
 
 writeInsert :: Schema s => s -> SrcSpan -> TrfType (Maybe RowID)
 writeInsert ctor loc = do
-  expSyntax <- asks exportSyntax
-  if expSyntax then Just <$> writeInsert' ctor loc
-               else return Nothing
+  stage <- asks exportStage
+  if stage == ParsedStage then Just <$> writeInsert' ctor loc
+                          else return Nothing
 
 writeInsert' :: Schema s => s -> SrcSpan -> TrfType RowID
 writeInsert' ctor loc = do
@@ -120,34 +122,42 @@ lookupNameNode = prepared $ \file start_row start_col -> do
 
 writeName :: SrcSpan -> Name -> TrfType ()
 writeName sp name = do
-  cm <- asks compiledModule
+  stage <- asks exportStage
   sc <- asks scope
-  defining <- asks isDefining
-  let (file, start_row, start_col, _, _) = spanData sp
-  [nodeId] <- lift $ lookupNameNode (pack file) start_row start_col
+  case sc of
+    Just scope -> do
+      liftIO $ putStrLn $ "writeName " ++ show sp
+      cm <- asks compiledModule
+      defining <- asks isDefining
+      let (file, start_row, start_col, _, _) = spanData sp
+      [nodeId] <- lift $ lookupNameNode (pack file) start_row start_col
 
-  let (d_file, d_start_row, d_start_col, d_end_row, d_end_col)
-        = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
-                                                      , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
-                                                      , Just (srcSpanEndCol rsp) )
-                                   _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
+      let (d_file, d_start_row, d_start_col, d_end_row, d_end_col)
+            = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
+                                                          , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
+                                                          , Just (srcSpanEndCol rsp) )
+                                       _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
 
-      uniq = maybe (showSDocUnsafe (pprModule cm) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
-                   ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
-                   (nameModule_maybe name)
-      namespace = occNameSpace $ nameOccName name
-      nameStr = occNameString $ nameOccName name
-  lift $ insert_ names [ Just nodeId :*: sc :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
-                           :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
+          uniq = maybe (showSDocUnsafe (pprModule cm) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
+                       ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
+                       (nameModule_maybe name)
+          namespace = occNameSpace $ nameOccName name
+          nameStr = occNameString $ nameOccName name
+      lift $ insert_ names [ Just nodeId :*: scope :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
+                               :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
+    Nothing -> return ()
 
 writeType :: SrcSpan -> Id -> TrfType ()
 writeType sp id = do
-  let (file, start_row, start_col, _, _) = spanData sp
+  cm <- asks compiledModule
+  let name = idName id
+      (file, start_row, start_col, _, _) = spanData sp
       annot = showSDocUnsafe $ ppr $ idType id
-  nodeIds <- lift $ lookupNameNode (pack file) start_row start_col
-  case nodeIds of
-    [nodeId] -> lift $ insert_ types [ nodeId :*: pack annot ]
-    _ -> liftIO $ putStrLn $ "Could not insert type annotation '" ++ annot ++ "' on node at: " ++ show (file, start_row, start_col)
+      uniq = maybe (showSDocUnsafe (pprModule cm) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
+                   ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
+                   (nameModule_maybe name)
+      nameStr = occNameString $ nameOccName name
+  lift $ insert_ types [ pack uniq :*: pack annot ]
 
 
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
@@ -168,14 +178,14 @@ combineSpans = foldl combineSrcSpans noSrcSpan
 
 addToScope :: SrcSpan -> TrfType () -> TrfType ()
 addToScope sp act = do
-  expSyntax <- asks exportSyntax
-  if expSyntax then act else doAddToScope sp act
+  stage <- asks exportStage
+  if stage == RenameStage then act else doAddToScope sp act
 
 doAddToScope :: SrcSpan -> TrfType () -> TrfType ()
 doAddToScope sp act = do
   let (file, start_row, start_col, end_row, end_col) = spanData sp
   newScope <- lift $ insertWithPK scopes [ def :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col ]
-  local (\s -> s { scope = newScope}) act
+  local (\s -> s { scope = Just newScope}) act
 
 scopedSequence :: (Exporter (Located e)) -> Exporter [Located e]
 scopedSequence f (first:next:rest)
@@ -189,14 +199,16 @@ export ctor loc fields = do
   id <- writeInsert ctor loc
   mapM_ (\(i,val) -> goInto id i val) (zip [1..] fields)
 
-exportError :: Data s => String -> s -> a
-exportError exporter a = throw $ ExportException exporter (dataTypeOf a) (toConstr a)
+exportError :: (Data s, Outputable s) => String -> s -> TrfType a
+exportError exporter a =
+  do stage <- asks exportStage
+     liftIO $ throwIO $ ExportException stage (showSDocUnsafe $ ppr a) exporter (toConstr a)
 
-data ExportException = ExportException String DataType Constr deriving Show
+data ExportException = ExportException ExportStage String String Constr deriving Show
 
 instance Exception ExportException where
-  displayException (ExportException exporter typ ctor)
-    = "Unexpected element while exporting: " ++ show ctor ++ " of type " ++ show typ ++ " with " ++ exporter
+  displayException (ExportException st ppr exporter ctor)
+    = "Unexpected element while exporting: " ++ ppr ++ "(" ++ show ctor ++ ") with: " ++ exporter ++ " in stage: " ++ show st
 
 --------------------------------------------------------------------------
 

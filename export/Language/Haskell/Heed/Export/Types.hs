@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-} -- export functions must be total
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Language.Haskell.Heed.Export.Types where
 
 import Language.Haskell.Heed.Export.Names
@@ -11,8 +12,11 @@ import Language.Haskell.Heed.Export.Schema
 
 import Control.Monad
 import HsTypes
+import BasicTypes as GHC
 import HsExpr
 import SrcLoc
+import Outputable
+import PlaceHolder(OutputableBndrId(..))
 
 exportType :: HsName n => Exporter (Located (HsType n))
 exportType (L l (HsForAllTy [] typ)) = exportType typ
@@ -57,20 +61,48 @@ exportContext (L l ctx) = export Context l [ mapM_ exportPredicate ctx ]
 
 
 exportPredicate :: HsName n => Exporter (LHsType n)
-exportPredicate (L l (HsParTy t)) = exportPredicate t
-exportPredicate (L l (HsOpTy left op right))
+exportPredicate = exportPredicate' . cleanHsType
+
+exportPredicate' :: HsName n => Exporter (LHsType n)
+exportPredicate' (L l (HsParTy t)) = exportPredicate t
+exportPredicate' (L l (HsOpTy left op right))
   = export InfixPredicate l [ exportType left, exportOperator op, exportType right ]
-exportPredicate (L l (HsTupleTy _ tys)) = export TuplePredicate l [ mapM_ exportPredicate tys ]
-exportPredicate (L l (HsWildCardTy _)) = export WildcardPredicate l []
-exportPredicate (L l (unappType -> (args, HsTyVar _ name)))
+exportPredicate' (L l (HsTupleTy _ tys)) = export TuplePredicate l [ mapM_ exportPredicate tys ]
+exportPredicate' (L l (HsWildCardTy _)) = export WildcardPredicate l []
+exportPredicate' (L l (unappType -> (args, HsTyVar _ name)))
   = export ClassPredicate l [ exportName name, mapM_ exportType args ]
-exportPredicate (L l (unappType -> ([], HsEqTy t1 t2)))
+exportPredicate' (L l (unappType -> ([], HsEqTy t1 t2)))
   = export TypeEqPredicate l [ exportType t1, exportType t2 ]
-exportPredicate (L l (unappType -> ([], HsIParamTy name typ)))
+exportPredicate' (L l (unappType -> ([], HsIParamTy name typ)))
   = export ImplicitPredicate l [ defining (exportImplicitName name), exportType typ ]
-exportPredicate (L l t) = exportError "assertion" t
+exportPredicate' (L l t) = exportError "predicate" t
 
 unappType :: HsType n -> ([LHsType n], HsType n)
 unappType (HsAppTy (L l ft) at) = case unappType ft of (args, base) -> (args++[at], base)
 unappType t                     = ([], t)
 
+-- | Tries to simplify the type that has HsAppsTy before renaming. Does not always provide the correct form.
+-- Treats each operator as if they are of equivalent precedence and always left-associative.
+cleanHsType :: OutputableBndrId n => LHsType n -> LHsType n
+-- for some reason * is considered infix
+cleanHsType (L l (HsAppsTy apps)) = guessType apps
+  where guessType :: OutputableBndrId n => [LHsAppType n] -> LHsType n
+        guessType (L l (HsAppInfix n) : rest) -- must be a prefix actually
+          = guessType' (L l (HsTyVar NotPromoted n)) rest
+        guessType (L _ (HsAppPrefix t) : rest) = guessType' t rest
+        guessType [] = error $ "guessType: empty: " ++ showSDocUnsafe (ppr apps)
+
+        guessType' :: OutputableBndrId n => LHsType n -> [LHsAppType n] -> LHsType n
+        guessType' fun (L _ (HsAppPrefix t) : rest) = guessType' (hsAppTy fun t) rest
+        guessType' fun (L l (HsAppInfix n) : rest)
+          -- TODO: find a better check
+          | showSDocUnsafe (ppr n) == "*" = guessType' (hsAppTy fun (L l (HsTyVar NotPromoted n))) rest
+        guessType' left (L _ (HsAppInfix n) : right) = hsOpTy left n (guessType right)
+        guessType' t [] = t
+
+        hsAppTy :: LHsType n -> LHsType n -> LHsType n
+        hsAppTy t1 t2 = L (getLoc t1 `combineSrcSpans` getLoc t2) $ HsAppTy t1 t2
+
+        hsOpTy :: LHsType n -> Located n -> LHsType n -> LHsType n
+        hsOpTy t1 n t2 = L (getLoc t1 `combineSrcSpans` getLoc t2) $ HsOpTy t1 n t2
+cleanHsType t = t

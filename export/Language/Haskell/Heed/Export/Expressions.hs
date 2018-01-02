@@ -21,6 +21,7 @@ import HsTypes
 import BasicTypes (Boxity(..))
 import OccName
 import SrcLoc
+import Control.Monad.IO.Class
 
 exportExpression :: HsName n => Exporter (Located (HsExpr n))
 exportExpression (L l (OpApp e1 (L _ (HsVar op)) _ e2))
@@ -38,20 +39,25 @@ exportExpression (L l (HsLam (unLoc . mg_alts -> [unLoc -> Match _ pats _ (GRHSs
 exportExpression (L l (HsLamCase (unLoc . mg_alts -> matches)))
   = export LambdaCaseE l [ mapM_ exportMatch matches ]
 exportExpression (L l (HsApp e1 e2)) = export AppE l [ exportExpression e1, exportExpression e2 ]
-exportExpression (L l (OpApp e1 (unLoc -> HsVar op) _ e2))
+exportExpression (L l (OpApp e1 (unLoc . cleanExpr -> HsVar op) _ e2))
   = export InfixAppE l [ exportExpression e1, exportOperator op, exportExpression e2 ]
-exportExpression (L l (OpApp e1 (L l' (HsRecFld op)) _ e2))
+exportExpression (L l (OpApp e1 (cleanExpr -> L l' (HsRecFld op)) _ e2))
   = export InfixAppE l [ exportExpression e1, exportAmbiguousOperator (L l' op), exportExpression e2 ]
-exportExpression (L _ opApp@(OpApp _ (L _ op) _ _)) = exportError "operator expression" opApp
+exportExpression (L _ (OpApp _ (cleanExpr -> L _ (HsConLikeOut {})) _ _)) = return () -- compiler-generated
+exportExpression (L _ (OpApp _ (L l op) _ _)) = exportError "operator expression" (unLoc $ cleanExpr (L l op))
 exportExpression (L l (NegApp e _)) = export PrefixAppE l [ exportExpression e ] -- TODO: name for negative sign
-exportExpression (L l (HsPar (unLoc -> SectionL expr (unLoc -> HsVar op))))
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (unLoc . cleanExpr -> HsVar op))))
   = export LeftSectionE l [ exportExpression expr, exportOperator op ]
-exportExpression (L l (HsPar (unLoc -> SectionL expr (L l' (HsRecFld op)))))
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (L l' (HsRecFld op)))))
   = export LeftSectionE l [ exportExpression expr, exportAmbiguousOperator (L l' op) ]
-exportExpression (L l (HsPar (unLoc -> SectionR (unLoc -> HsVar op) expr)))
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr right)))
+  = exportError "right section expression" (unLoc (cleanExpr right))
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (unLoc . cleanExpr -> HsVar op) expr)))
   = export RightSectionE l [ exportOperator op, exportExpression expr ]
-exportExpression (L l (HsPar (unLoc -> SectionR (L l' (HsRecFld op)) expr)))
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (L l' (HsRecFld op)) expr)))
   = export RightSectionE l [ exportAmbiguousOperator (L l' op), exportExpression expr ]
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR left expr)))
+  = exportError "left section expression" (unLoc (cleanExpr left))
 exportExpression (L l (HsPar expr)) = export ParenE l [ exportExpression expr ]
 exportExpression (L l (ExplicitTuple tupArgs box))
   = export tupType l [mapM_ ((\case (Present e) -> exportExpression e
@@ -117,7 +123,11 @@ exportExpression (L l (HsSpliceE splice)) = export SpliceE l [ exportSplice (L l
 exportExpression (L l (HsStatic _ expr)) = export StaticE l [ exportExpression expr ]
 exportExpression (L l (HsAppType expr typ))
   = export TypeApplicationE l [ exportExpression expr, exportType (hswc_body typ) ]
-
+exportExpression (L l (HsConLikeOut {})) = return () -- compiler generated thing
+exportExpression (L l (HsAppTypeOut {})) = return () -- compiler generated thing
+exportExpression (L l (HsRnBracketOut {})) = return () -- compiler generated thing
+exportExpression (L l (HsTcBracketOut {})) = return () -- compiler generated thing
+exportExpression (L l (ExprWithTySigOut {})) = return () -- compiler generated thing
 
 
 -- trfExpr' (HsSCC _ lit expr) = AST.UExprPragma <$> pragma <*> trfExpr expr
@@ -144,6 +154,9 @@ exportExpression (L l (HsAppType expr typ))
 exportExpression (L l (HsWrap _ expr)) = exportExpression (L l expr)
 exportExpression (L l expr) = exportError "expression" expr
 
+cleanExpr :: LHsExpr n -> LHsExpr n
+cleanExpr (L l (HsWrap _ expr)) = L l expr
+cleanExpr expr = expr
 
 exportFieldInits :: HsName n => Exporter (Located (HsRecFields n (LHsExpr n)))
 -- TODO: implicit field info

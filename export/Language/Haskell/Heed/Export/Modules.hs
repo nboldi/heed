@@ -21,8 +21,7 @@ import HsImpExp as GHC
 
 exportTcModule :: Exporter TypecheckedSource
 exportTcModule binds
-  = do liftIO $ putStrLn "exportTcModule"
-       mapM_ exportBinding (bagToList binds)
+  = mapM_ exportBinding (bagToList binds)
 
 exportRnModule :: HsName n => Exporter (HsGroup n, [LImportDecl n], Maybe [LIE n], Maybe LHsDocString)
 exportRnModule (gr,imports,exps,_)

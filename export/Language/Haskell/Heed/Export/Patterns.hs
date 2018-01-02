@@ -36,8 +36,8 @@ exportPattern (L l (ConPatIn name (RecCon (HsRecFields flds _))))
   = export RecordConstructorP l [ exportName name, mapM_ exportPatternField flds ]
 exportPattern (L l (ConPatIn name (InfixCon left right)))
   = export RecordConstructorP l [ exportPattern left, exportOperator name, exportPattern right ]
-exportPattern (L l p@(ConPatOut {})) = exportError "pattern" p -- compiler-generated patterns
-exportPattern (L l p@(SigPatOut {})) = exportError "pattern" p -- compiler-generated patterns
+exportPattern (L l p@(ConPatOut {})) = return () -- compiler-generated patterns
+exportPattern (L l p@(SigPatOut {})) = return () -- compiler-generated patterns
 exportPattern (L l (ViewPat expr pat _))
   = export ViewP l [ exportExpression expr, exportPattern pat ]
 exportPattern (L l (SplicePat qq@(HsQuasiQuote {})))

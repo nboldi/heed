@@ -13,9 +13,10 @@ import HsExpr
 import HsPat
 import HsBinds
 import SrcLoc
+import Outputable(Outputable(..))
 
 
-exportDoStatement :: (HsName n, Data e) => Exporter e -> Exporter (Located (Stmt n e))
+exportDoStatement :: (HsName n, Data e, Outputable e) => Exporter e -> Exporter (Located (Stmt n e))
 exportDoStatement exporter (L l (BindStmt pat expr _ _ _))
   = export BindS l [ exportPattern pat, exporter expr ]
 exportDoStatement exporter (L l (BodyStmt expr _ _ _)) = export BodyS l [ exporter expr ]

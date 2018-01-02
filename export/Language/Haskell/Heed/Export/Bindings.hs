@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 module Language.Haskell.Heed.Export.Bindings where
@@ -35,10 +36,13 @@ exportBinding (L l (FunBind { fun_id = id
                                                                                , m_grhss = GRHSs [rhss] locals })]} }))
   = export SimpleB l [ export VariableP (getLoc id) [ exportName id ]
                      , exportRhss rhss
-                     , exportLocalBinds locals
-                     ]
+                     , exportLocalBinds locals ]
 exportBinding (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _))
   = export FunctionB l [ mapM_ exportMatch matches ]
+exportBinding (L l (PatBind pat (GRHSs rhs locals) _ _ _))
+  = export SimpleB l [ exportPattern pat
+                     , mapM_ exportRhss rhs
+                     , exportLocalBinds locals ]
 exportBinding (L l (VarBind {})) = return () -- not a source binding
 exportBinding (L l b@(AbsBinds {})) = mapM_ exportBinding (abs_binds b)
 exportBinding (L l b@(AbsBindsSig {})) = exportBinding (abs_sig_bind b)

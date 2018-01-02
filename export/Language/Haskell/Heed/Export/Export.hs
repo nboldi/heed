@@ -45,11 +45,9 @@ exportSrcFile root modName doExport =
         transaction $ do
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
-          let es = initExportState True (ms_mod modSum)
-              es' = initExportState False (ms_mod modSum)
-          flip runReaderT es $ exportModule $ parsedSource p
-          case renamedSource t of Just rs -> flip runReaderT es' $ exportRnModule rs
-          flip runReaderT es' $ exportTcModule $ typecheckedSource t
+          flip runReaderT (initExportState ParsedStage (ms_mod modSum)) $ exportModule $ parsedSource p
+          case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage (ms_mod modSum)) $ exportRnModule rs
+          flip runReaderT (initExportState TypedStage (ms_mod modSum)) $ exportTcModule $ typecheckedSource t
 
 cleanDatabase :: SeldaT Ghc ()
 cleanDatabase = withForeignCheckTurnedOff $ do

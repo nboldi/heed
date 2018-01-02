@@ -108,10 +108,10 @@ names = table "names" $ optional "name_node" -- `fk` (nodes, node_id)
     :*: name_uniq
     :*: name_defining ) = selectors names
 
-types :: Table ( RowID :*: Text )
-types = table "types" $ required "type_node" `fk` (nodes, node_id)
-                          :*: required "type_name"
-( type_node :*: type_name ) = selectors names
+types :: Table ( Text :*: Text )
+types = table "types" $ required "type_name" -- `fk` (names, name_uniq)
+                          :*: required "type_desc"
+( type_name :*: type_desc ) = selectors names
 
 scopes :: Table ( RowID :*: Text :*: Int :*: Int :*: Int :*: Int )
 scopes = table "scopes" $ autoPrimary "scope_id"

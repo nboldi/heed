@@ -58,11 +58,11 @@ instance HsName GHC.Name where
   exportFieldOccName (L l (FieldOcc _ name)) = exportName (L l name)
 
 instance HsName Id where
-  exportName (L l n) = liftIO (putStrLn $ "exportName: " ++ showSDocUnsafe (ppr n)) >> writeType l n
-  exportOperator (L l n) = liftIO (putStrLn $ "exportOperator: " ++ showSDocUnsafe (ppr n)) >> writeType l n
+  exportName (L l n) = writeType l n
+  exportOperator (L l n) = writeType l n
   exportNameOrRdrName exporter = exporter
   exportRnName exporter _ = exporter
-  exportFieldOccName (L l (FieldOcc _ name)) = exportName (L l name)
+  exportFieldOccName (L l (FieldOcc _ n)) = writeType l n
 
 
 exportAmbiguousFieldName :: forall n . HsName n => Exporter (Located (AmbiguousFieldOcc n))

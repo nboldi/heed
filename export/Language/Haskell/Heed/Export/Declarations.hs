@@ -299,14 +299,16 @@ exportInstanceRule (L l (HsQualTy ctx typ))
 exportInstanceRule typ@(L l _) = export InstanceRule l [ return (), return (), exportInstanceHead typ ]
 
 exportInstanceHead :: HsName n => Exporter (Located (HsType n))
-exportInstanceHead (L l (HsForAllTy [] t)) = exportInstanceHead t
-exportInstanceHead (L l (HsTyVar _ tv)) = export ConstructorIH l [ exportName tv ]
-exportInstanceHead (L l (HsAppTy t1 t2))
+exportInstanceHead = exportInstanceHead' . cleanHsType
+
+exportInstanceHead' (L l (HsForAllTy [] t)) = exportInstanceHead t
+exportInstanceHead' (L l (HsTyVar _ tv)) = export ConstructorIH l [ exportName tv ]
+exportInstanceHead' (L l (HsAppTy t1 t2))
   = export ApplicationIH l [ exportInstanceHead t1, exportType t2 ]
-exportInstanceHead (L l (HsParTy typ)) = export ParenIH l [ exportInstanceHead typ ]
-exportInstanceHead (L l (HsOpTy t1 op t2))
+exportInstanceHead' (L l (HsParTy typ)) = export ParenIH l [ exportInstanceHead typ ]
+exportInstanceHead' (L l (HsOpTy t1 op t2))
   = export InfixIH l [ exportType t1, exportOperator op, exportType t2 ]
-exportInstanceHead (L l t) = exportError "instance head" t
+exportInstanceHead' (L l t) = exportError "instance head" t
 
 
 exportTypeEquation :: HsName n => Exporter (Located (TyFamInstEqn n))
@@ -331,8 +333,7 @@ exportTypeFamily (L l tf@(FamilyDecl (ClosedTypeFamily {}) _ _ _ _ _))
 exportFamilySig :: HsName n => Exporter (Located (FamilyResultSig n))
 exportFamilySig (L l NoSig) = return ()
 exportFamilySig (L l (KindSig k)) = exportKindSignature (Just k)
-exportFamilySig (L l s) = exportError "type family signature" s
-
+exportFamilySig (L l (TyVarSig _)) = error "exportFamilySig: TyVarSig in type family result signature"
 
 exportFamilyResSig :: HsName n => Maybe (LInjectivityAnn n) -> Exporter (Located (FamilyResultSig n))
 exportFamilyResSig Nothing (L l NoSig) = return ()
