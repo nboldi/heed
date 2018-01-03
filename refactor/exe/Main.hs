@@ -23,6 +23,12 @@ tests = sequence_ $ [ putStrLn "=== 3:1-3:2 x"
                     , refactor "3:3-3:4" "d"
                     , putStrLn "=== 3:3-3:4 b"
                     , refactor "3:3-3:4" "b"
+                    , putStrLn "=== 7:1-7:2 xx"
+                    , refactor "7:1-7:2" "b"
+                    , putStrLn "=== 10:1-10:2 xx"
+                    , refactor "10:1-10:2" "b"
+                    , putStrLn "=== 13:1-13:2 xx"
+                    , refactor "13:1-13:2" "b"
                     ]
 
 refactor :: String -> String -> IO ()
@@ -60,13 +66,23 @@ renameUnique newName uniq namespace = do
     node <- select nodes
     restrict $ foldl (.||) false (map (inRow node) rewritten)
 
-    let isInSubseqRow (_ :*: _ :*: _ :*: _ :*: fl :*: sr :*: _ :*: er :*: ec :*: _)
-          = fl .== node ! node_file
-             .&& sr .> node ! node_start_row
-             .&& er .<= node ! node_end_row
-             .&& ec .<= node ! node_start_col
-    nodesBeforeCol <- leftJoin isInSubseqRow (select nodes)
-    restrict $ isNull (first nodesBeforeCol)
+    let nodeIsInSubseqRow n = n ! node_file .== node ! node_file
+                                .&& n ! node_start_row .> node ! node_start_row
+                                .&& n ! node_end_row .<= node ! node_end_row
+                                .&& n ! node_start_col .<= node ! node_start_col
+        commentIsInSubseqRow n = n ! comment_file .== node ! node_file
+                                   .&& n ! comment_start_row .> node ! node_start_row
+                                   .&& n ! comment_end_row .<= node ! node_end_row
+                                   .&& n ! comment_start_col .<= node ! node_start_col
+        tokenIsInSubseqRow n = n ! token_file .== node ! node_file
+                                 .&& n ! token_start_row .> node ! node_start_row
+                                 .&& n ! token_end_row .<= node ! node_end_row
+                                 .&& n ! token_start_col .<= node ! node_start_col
+    nodesBeforeCol <- leftJoin nodeIsInSubseqRow (select nodes)
+    commentBeforeCol <- leftJoin commentIsInSubseqRow (select comments)
+    tokenBeforeCol <- leftJoin tokenIsInSubseqRow (select tokens)
+
+    restrict $ isNull (first nodesBeforeCol) .&& isNull (first commentBeforeCol) .&& isNull (first tokenBeforeCol)
     return ((node ! node_start_row) + 1 :*: node ! node_end_row )
 
   clash <- query $ distinct $ do

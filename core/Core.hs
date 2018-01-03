@@ -1,4 +1,8 @@
-{-# LANGUAGE TypeOperators, OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Core where
 
 import Control.Monad
@@ -11,7 +15,7 @@ import Data.Text
 
 import Database.Selda
 import Control.Monad.Catch
-import GHC
+import GHC (gcatch)
 import GhcMonad
 
 import qualified Database.Selda.Backend as Backend -- just for disabling foreign keys to drop tables
@@ -47,7 +51,9 @@ withForeignCheckTurnedOff act = do
 
 -- * Syntax
 
-nodes :: Table (RowID :*: Maybe RowID :*: Int :*: Int :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Int)
+type Node = RowID :*: Maybe RowID :*: Int :*: Int :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Int
+
+nodes :: Table Node
 nodes = table "nodes" $ autoPrimary "node_id"
                           :*: optional "parent_id" -- `fk` (nodes, node_id)
                           :*: required "node_type"
@@ -69,7 +75,9 @@ nodes = table "nodes" $ autoPrimary "node_id"
     :*: node_end_col
     :*: parent_handle ) = selectors nodes
 
-attributes :: Table ( RowID :*: Int :*: Maybe Text :*: Maybe Int :*: Maybe Double )
+type Attribute = RowID :*: Int :*: Maybe Text :*: Maybe Int :*: Maybe Double
+
+attributes :: Table Attribute
 attributes = table "attributes" $ required "container"
                                     :*: required "attribute_handle"
                                     :*: optional "text_attribute"
@@ -83,8 +91,10 @@ attributes = table "attributes" $ required "container"
 
 -- * Semantic information
 
-names :: Table ( Maybe RowID :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int
-                   :*: Text :*: Text :*: Text :*: Bool )
+type Name = Maybe RowID :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int
+              :*: Text :*: Text :*: Text :*: Bool
+
+names :: Table Name
 names = table "names" $ optional "name_node" -- `fk` (nodes, node_id)
                           :*: required "name_scope" `fk` (scopes, scope_id) -- the scope in which the name is bound
                           :*: optional "def_file"
@@ -108,12 +118,16 @@ names = table "names" $ optional "name_node" -- `fk` (nodes, node_id)
     :*: name_uniq
     :*: name_defining ) = selectors names
 
-types :: Table ( Text :*: Text )
+type Type = Text :*: Text
+
+types :: Table Type
 types = table "types" $ required "type_name" -- `fk` (names, name_uniq)
                           :*: required "type_desc"
 ( type_name :*: type_desc ) = selectors names
 
-scopes :: Table ( RowID :*: Text :*: Int :*: Int :*: Int :*: Int )
+type Scope = RowID :*: Text :*: Int :*: Int :*: Int :*: Int
+
+scopes :: Table Scope
 scopes = table "scopes" $ autoPrimary "scope_id"
                            :*: required "file"
                            :*: required "start_row"
@@ -129,16 +143,25 @@ scopes = table "scopes" $ autoPrimary "scope_id"
 
 -- * Lexical information
 
-tokens :: Table (Text :*: Int :*: Int :*: Int :*: Int :*: Text)
+type Token = Text :*: Int :*: Int :*: Int :*: Int :*: Text
+
+tokens :: Table Token
 tokens = table "tokens" $ required "file"
                             :*: required "start_row"
                             :*: required "start_col"
                             :*: required "end_row"
                             :*: required "end_col"
                             :*: required "token"
+( token_file
+    :*: token_start_row
+    :*: token_start_col
+    :*: token_end_row
+    :*: token_end_col
+    :*: token_str ) = selectors tokens
 
+type Comment = Text :*: Int :*: Int :*: Int :*: Int :*: Text :*: Text
 
-comments :: Table (Text :*: Int :*: Int :*: Int :*: Int :*: Text :*: Text)
+comments :: Table Comment
 comments = table "comments" $ required "file"
                                 :*: required "start_row"
                                 :*: required "start_col"
@@ -146,4 +169,38 @@ comments = table "comments" $ required "file"
                                 :*: required "end_col"
                                 :*: required "type"
                                 :*: required "content"
+( comment_file
+    :*: comment_start_row
+    :*: comment_start_col
+    :*: comment_end_row
+    :*: comment_end_col
+    :*: comment_type
+    :*: comment_str ) = selectors comments
 
+class LocatedElement e where
+  file :: Cols s e -> Col s Text
+  startRow :: Cols s e -> Col s Int
+  startCol :: Cols s e -> Col s Int
+  endRow :: Cols s e -> Col s Int
+  endCol :: Cols s e -> Col s Int
+
+instance LocatedElement Node where
+  file node = node ! node_file
+  startRow node = node ! node_start_row
+  startCol node = node ! node_start_col
+  endRow node = node ! node_end_row
+  endCol node = node ! node_end_col
+
+instance LocatedElement Token where
+  file node = node ! token_file
+  startRow node = node ! token_start_row
+  startCol node = node ! token_start_col
+  endRow node = node ! token_end_row
+  endCol node = node ! token_end_col
+
+instance LocatedElement Comment where
+  file node = node ! comment_file
+  startRow node = node ! comment_start_row
+  startCol node = node ! comment_start_col
+  endRow node = node ! comment_end_row
+  endCol node = node ! comment_end_col

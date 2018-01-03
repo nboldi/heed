@@ -53,7 +53,7 @@ instance CompilationPhase RdrName where
   getBindsAndSigs (ValBindsIn binds sigs) = (sigs, binds)
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsOut in parsed source"
 
-instance CompilationPhase Name where
+instance CompilationPhase GHC.Name where
   getBindsAndSigs (ValBindsOut bindGroups sigs) = (sigs, unionManyBags (map snd bindGroups))
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
 
@@ -120,7 +120,7 @@ lookupNameNode = prepared $ \file start_row start_col -> do
                     .|| n ! node_type .== int (typeId (undefined :: Schema.Operator)))
   return (n ! node_id)
 
-writeName :: SrcSpan -> Name -> TrfType ()
+writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
   sc <- asks scope
   case sc of
@@ -229,7 +229,7 @@ class HsHasName a where
 instance HsHasName RdrName where
   hsGetNames _ = []
 
-instance HsHasName Name where
+instance HsHasName GHC.Name where
   hsGetNames n = [n]
 
 instance HsHasName Id where
