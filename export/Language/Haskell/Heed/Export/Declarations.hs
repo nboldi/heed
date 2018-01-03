@@ -27,10 +27,11 @@ import HsSyn
 import SrcLoc
 import Class
 
+import Control.Monad.IO.Class
+
 exportDeclarationGroup :: HsName n => Exporter (HsGroup n)
 exportDeclarationGroup g@(HsGroup vals splices tycls derivs fixities defaults foreigns warns anns rules vects _)
-  = addToScope (combineLocated allDecls)
-      $ goInto Nothing 1 $ mapM_ exportDeclaration allDecls
+  = addToScope (combineLocated allDecls) $ mapM_ exportDeclaration allDecls
   where (sigs, bagToList -> binds) = getBindsAndSigs vals
         allDecls = (map (fmap GHC.SpliceD) splices)
                       ++ (map (fmap ValD) binds)
@@ -50,7 +51,6 @@ exportDeclaration :: HsName n => Exporter (Located (HsDecl n))
 exportDeclaration (L l (ValD (PatSynBind (PSB id _ lhs def dir))))
   = export PatternSynonymD l [ exportPatternSynonymLhs id lhs, exportPatternSynonymRhs dir def ]
 exportDeclaration (L l (ValD bind)) = export BindingD l [ exportBinding (L l bind) ]
-
 exportDeclaration (L l (SigD ts@(TypeSig {})))
   = export TypeSignatureD l [ exportTypeSignature (L l ts) ]
 exportDeclaration (L l (SigD (PatSynSig ids typ)))

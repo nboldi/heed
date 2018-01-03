@@ -122,11 +122,9 @@ lookupNameNode = prepared $ \file start_row start_col -> do
 
 writeName :: SrcSpan -> Name -> TrfType ()
 writeName sp name = do
-  stage <- asks exportStage
   sc <- asks scope
   case sc of
     Just scope -> do
-      liftIO $ putStrLn $ "writeName " ++ show sp
       cm <- asks compiledModule
       defining <- asks isDefining
       let (file, start_row, start_col, _, _) = spanData sp
@@ -179,13 +177,13 @@ combineSpans = foldl combineSrcSpans noSrcSpan
 addToScope :: SrcSpan -> TrfType () -> TrfType ()
 addToScope sp act = do
   stage <- asks exportStage
-  if stage == RenameStage then act else doAddToScope sp act
+  if stage /= RenameStage then act else doAddToScope sp act
 
 doAddToScope :: SrcSpan -> TrfType () -> TrfType ()
 doAddToScope sp act = do
   let (file, start_row, start_col, end_row, end_col) = spanData sp
   newScope <- lift $ insertWithPK scopes [ def :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col ]
-  local (\s -> s { scope = Just newScope}) act
+  local (\s -> s { scope = Just newScope }) act
 
 scopedSequence :: (Exporter (Located e)) -> Exporter [Located e]
 scopedSequence f (first:next:rest)
