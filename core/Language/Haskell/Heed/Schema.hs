@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Language.Haskell.Heed.Export.Schema where
+module Language.Haskell.Heed.Schema where
 
 import Data.Data
 import qualified Language.Haskell.TH.Syntax as TH

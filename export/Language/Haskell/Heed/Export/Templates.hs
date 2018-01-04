@@ -7,7 +7,7 @@ import Language.Haskell.Heed.Export.Patterns
 import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Declarations
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema
+import Language.Haskell.Heed.Schema
 
 import HsExpr
 import FastString

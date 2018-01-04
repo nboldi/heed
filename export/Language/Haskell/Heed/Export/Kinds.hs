@@ -6,7 +6,7 @@ module Language.Haskell.Heed.Export.Kinds where
 import Language.Haskell.Heed.Export.Names
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema
+import Language.Haskell.Heed.Schema
 
 import Data.Data
 import HsTypes

@@ -4,7 +4,7 @@ module Language.Haskell.Heed.Export.Modules where
 import Language.Haskell.Heed.Export.Declarations
 import Language.Haskell.Heed.Export.Bindings
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema as Schema
+import Language.Haskell.Heed.Schema as Schema
 
 import Control.Monad
 import Control.Monad.IO.Class

@@ -9,7 +9,7 @@ import Language.Haskell.Heed.Export.Patterns
 import Language.Haskell.Heed.Export.Names
 import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema as Schema
+import Language.Haskell.Heed.Schema as Schema
 
 import Data.Data
 import HsBinds

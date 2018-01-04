@@ -11,7 +11,7 @@ import {-# SOURCE #-} Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Statements
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema hiding (Match(..))
+import Language.Haskell.Heed.Schema hiding (Match(..))
 
 import Data.List
 import HsExpr

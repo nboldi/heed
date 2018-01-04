@@ -6,7 +6,7 @@ import Language.Haskell.Heed.Export.Names
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Expressions
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema
+import Language.Haskell.Heed.Schema
 
 import Data.Data
 import HsExpr

@@ -10,7 +10,7 @@ import Data.ByteString.Char8 as BS
 import BasicTypes
 
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema
+import Language.Haskell.Heed.Schema
 
 exportMonoLiteral :: Exporter (Located HsLit)
 exportMonoLiteral (L l (HsChar _ ch)) = export Character l [ writeStringAttribute [ch] ]

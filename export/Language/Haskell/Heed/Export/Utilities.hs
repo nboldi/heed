@@ -27,8 +27,8 @@ import Core
 import Data.Data
 import Data.Text (pack)
 
-import Language.Haskell.Heed.Export.Schema (Schema(..))
-import qualified Language.Haskell.Heed.Export.Schema as Schema
+import Language.Haskell.Heed.Schema (Schema(..))
+import qualified Language.Haskell.Heed.Schema as Schema
 
 data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , exportStage :: ExportStage

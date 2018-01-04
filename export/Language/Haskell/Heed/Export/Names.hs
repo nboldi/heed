@@ -6,7 +6,7 @@
 module Language.Haskell.Heed.Export.Names (exportOperator, exportImplicitName, exportAmbiguousOperator, exportAmbiguousFieldName) where
 
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema
+import Language.Haskell.Heed.Schema
 
 import Control.Monad
 import Control.Monad.IO.Class

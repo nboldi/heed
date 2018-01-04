@@ -27,7 +27,6 @@ library
                    Language.Haskell.Heed.Export.Kinds
                    Language.Haskell.Heed.Export.Statements
                    Language.Haskell.Heed.Export.Utilities
-                   Language.Haskell.Heed.Export.Schema
   build-depends:   base >=4.10 && <4.11
                  , ghc
                  , ghc-paths

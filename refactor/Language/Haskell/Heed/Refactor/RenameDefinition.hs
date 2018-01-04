@@ -15,6 +15,7 @@ import System.IO hiding (hGetContents)
 import System.IO.Strict (hGetContents)
 
 import Core
+import Language.Haskell.Heed.Schema
 
 renameDefinition :: String -> String -> SeldaT IO (Either String [(RealSrcSpan, String)])
 renameDefinition newName srcSpan = do
@@ -44,11 +45,15 @@ renameUnique :: String -> Text -> [Text] -> Text -> SeldaT IO (Either String [(R
 renameUnique newName original uniqs namespace = do
   renameRanges <- query $ do
     n <- select names
-    node <- select nodes
-    restrict $ just (node ! node_id) .== n ! name_node
+    nameNode <- select nodes
+    unqualNode <- select nodes
+    restrict $ just (nameNode ! node_id) .== n ! name_node
+                 .&& just (nameNode ! node_id) .== unqualNode ! node_parent
+                 .&& unqualNode ! node_type .== int (typeId (undefined :: UnqualifiedName))
     restrict $ n ! name_uniq `isIn` map text uniqs
                  .&& n ! name_namespace .== text namespace
-    return (node ! node_file :*: node ! node_start_row :*: node ! node_start_col :*: node ! node_end_row :*: node ! node_end_col )
+    return ( unqualNode ! node_file :*: unqualNode ! node_start_row :*: unqualNode ! node_start_col
+               :*: unqualNode ! node_end_row :*: unqualNode ! node_end_col )
   -- liftIO $ putStrLn $ "renameRanges: " ++ show renameRanges
 
   align <- query $ distinct $ do
@@ -106,7 +111,7 @@ renameUnique newName original uniqs namespace = do
                  .&& snmo ! name_uniq .== occ ! name_uniq
     -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming (and the renamed id's definition is not closer to usage)
                 .|| occ ! name_uniq `isIn` map text uniqs .&& snm ! name_str .== text (pack newName)
-                     .&& snmo ! name_uniq `isIn` map text uniqs
+                     .&& snmo ! name_uniq `isIn` map text uniqs .&& snm ! name_namespace .== text namespace
     return ( node ! node_start_row :*: node ! node_start_col :*: snm ! name_str :*: snmo ! name_str )
 
   case clash of

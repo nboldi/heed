@@ -9,7 +9,7 @@ import Language.Haskell.Heed.Export.Literals
 import {-# SOURCE #-} Language.Haskell.Heed.Export.Templates
 import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
-import Language.Haskell.Heed.Export.Schema
+import Language.Haskell.Heed.Schema
 
 import HsPat
 import BasicTypes as GHC (Boxity(..))
