@@ -23,10 +23,10 @@ renameDefinition newName srcSpan = do
     n <- select names
     node <- select nodes
     restrict $ just (node ! node_id) .== n ! name_node
-    restrict $ (int stRow .< node ! node_start_row
-                  .|| int stRow .== node ! node_start_row .&& int stCol .<= node ! node_start_col)
-    restrict $ (node ! node_end_row .< int endRow
-                  .|| node ! node_end_row .== int endRow .&& node ! node_end_col .<= int endCol)
+    restrict $ (int stRow .> node ! node_start_row
+                  .|| int stRow .== node ! node_start_row .&& int stCol .>= node ! node_start_col)
+    restrict $ (node ! node_end_row .> int endRow
+                  .|| node ! node_end_row .== int endRow .&& node ! node_end_col .>= int endCol)
     return ( n ! name_uniq :*: n ! name_str :*: n ! name_namespace )
 
   case selectedName of
@@ -47,6 +47,7 @@ renameUnique newName original uniqs namespace = do
     node <- select nodes
     restrict $ just (node ! node_id) .== n ! name_node
     restrict $ n ! name_uniq `isIn` map text uniqs
+                 .&& n ! name_namespace .== text namespace
     return (node ! node_file :*: node ! node_start_row :*: node ! node_start_col :*: node ! node_end_row :*: node ! node_end_col )
   -- liftIO $ putStrLn $ "renameRanges: " ++ show renameRanges
 
