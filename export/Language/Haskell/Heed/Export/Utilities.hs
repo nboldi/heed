@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 module Language.Haskell.Heed.Export.Utilities where
@@ -46,7 +47,7 @@ type Exporter n = n -> TrfType ()
 class IsRdrName n where
   toRdrName :: n -> RdrName
 
-class (OutputableBndr n, OutputableBndr (NameOrRdrName n)) => CompilationPhase n where
+class (OutputableBndr n, OutputableBndr (NameOrRdrName n), HsHasName (FieldOcc n)) => CompilationPhase n where
   getBindsAndSigs :: HsValBinds n -> ([LSig n], LHsBinds n)
 
 instance CompilationPhase RdrName where
@@ -136,9 +137,7 @@ writeName sp name = do
                                                           , Just (srcSpanEndCol rsp) )
                                        _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
 
-          uniq = maybe (showSDocUnsafe (pprModule cm) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
-                       ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
-                       (nameModule_maybe name)
+          uniq = createNameUnique cm name
           namespace = occNameSpace $ nameOccName name
           nameStr = occNameString $ nameOccName name
       lift $ insert_ names [ Just nodeId :*: scope :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
@@ -151,11 +150,20 @@ writeType sp id = do
   let name = idName id
       (file, start_row, start_col, _, _) = spanData sp
       annot = showSDocUnsafe $ ppr $ idType id
-      uniq = maybe (showSDocUnsafe (pprModule cm) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
-                   ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
-                   (nameModule_maybe name)
-      nameStr = occNameString $ nameOccName name
+      uniq = createNameUnique cm name
   lift $ insert_ types [ pack uniq :*: pack annot ]
+
+writeImplicitInfo :: (HsName n, HsHasName (FieldOcc n)) => (a -> [GHC.Name]) -> [HsRecField n a] -> TrfType ()
+writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
+  where getLabelAndExpr fld = ( getTheName $ hsGetNames (hsRecFieldLbl fld), getTheName $ select (hsRecFieldArg fld) )
+        getTheName [] = error "writeImplicitInfo: missing names"
+        getTheName (e:_) = e
+
+doWriteImplicitInfo :: [(GHC.Name, GHC.Name)] -> TrfType ()
+doWriteImplicitInfo bindings
+  = do mod <- asks compiledModule
+       lift $ insert_ implicitBinds (map (\(n1,n2) -> pack (createNameUnique mod n1)
+                                                        :*: pack (createNameUnique mod n2)) bindings)
 
 
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
@@ -172,6 +180,12 @@ combineLocated = foldl combineSrcSpans noSrcSpan . map getLoc
 combineSpans :: [SrcSpan] -> SrcSpan
 combineSpans = foldl combineSrcSpans noSrcSpan
 
+createNameUnique :: GHC.Module -> GHC.Name -> String
+createNameUnique mod name
+  = maybe (showSDocUnsafe (pprModule mod) ++ "." ++ nameStr ++ "?" ++ show (nameUnique name))
+          ((++ ("."++nameStr)) . showSDocUnsafe . pprModule)
+          (nameModule_maybe name)
+  where nameStr = occNameString $ nameOccName name
 -------------------------------------------------------------------------
 
 addToScope :: SrcSpan -> TrfType () -> TrfType ()
@@ -234,6 +248,15 @@ instance HsHasName GHC.Name where
 
 instance HsHasName Id where
   hsGetNames n = [idName n]
+
+instance HsHasName (FieldOcc RdrName) where
+  hsGetNames _ = []
+
+instance HsHasName (FieldOcc GHC.Name) where
+  hsGetNames (FieldOcc _ n) = [n]
+
+instance HsHasName (FieldOcc Id) where
+  hsGetNames (FieldOcc _ n) = [idName n]
 
 instance HsHasName e => HsHasName [e] where
   hsGetNames es = concatMap hsGetNames es

@@ -75,6 +75,8 @@ data Name = NormalName | ParenName
 data Operator = NormalOperator | BacktickOperator
   deriving Data
 
+data FieldPatterns = FieldPatterns deriving Data
+
 data FieldUpdates = FieldUpdates deriving Data
 
 data FieldWildcard = FieldWildcard deriving Data
@@ -232,6 +234,6 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''TypeEquation, ''TypeFamilySignature, ''TypeFamily, ''CallConv, ''Safety
                 , ''Overlap, ''Role, ''InstanceElement, ''InjectivityAnnot, ''TopLevelPragma
                 , ''RewriteRule, ''RuleVar, ''ModuleName, ''ImportDecl, ''ImportSafe, ''ImportSource
-                , ''ImportQualified, ''ExportSpec, ''ImportSpec, ''IESpec, ''IESubSpec
+                , ''ImportQualified, ''ExportSpec, ''ImportSpec, ''IESpec, ''IESubSpec, ''FieldPatterns
                 ])
  )

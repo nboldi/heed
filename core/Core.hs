@@ -125,6 +125,14 @@ types = table "types" $ required "type_name" -- `fk` (names, name_uniq)
                           :*: required "type_desc"
 ( type_name :*: type_desc ) = selectors names
 
+type ImplicitBinds = Text :*: Text
+
+implicitBinds :: Table Type
+implicitBinds = table "implicit_binds" $ required "imp_bind_lhs"
+                                           :*: required "imp_bind_rhs"
+( imp_bind_lhs :*: imp_bind_rhs ) = selectors implicitBinds
+
+
 type Scope = RowID :*: Text :*: Int :*: Int :*: Int :*: Int
 
 scopes :: Table Scope
@@ -176,31 +184,3 @@ comments = table "comments" $ required "file"
     :*: comment_end_col
     :*: comment_type
     :*: comment_str ) = selectors comments
-
-class LocatedElement e where
-  file :: Cols s e -> Col s Text
-  startRow :: Cols s e -> Col s Int
-  startCol :: Cols s e -> Col s Int
-  endRow :: Cols s e -> Col s Int
-  endCol :: Cols s e -> Col s Int
-
-instance LocatedElement Node where
-  file node = node ! node_file
-  startRow node = node ! node_start_row
-  startCol node = node ! node_start_col
-  endRow node = node ! node_end_row
-  endCol node = node ! node_end_col
-
-instance LocatedElement Token where
-  file node = node ! token_file
-  startRow node = node ! token_start_row
-  startCol node = node ! token_start_col
-  endRow node = node ! token_end_row
-  endCol node = node ! token_end_col
-
-instance LocatedElement Comment where
-  file node = node ! comment_file
-  startRow node = node ! comment_start_row
-  startCol node = node ! comment_start_col
-  endRow node = node ! comment_end_row
-  endCol node = node ! comment_end_col

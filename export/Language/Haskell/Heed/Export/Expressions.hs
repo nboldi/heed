@@ -13,6 +13,7 @@ import {-# SOURCE #-} Language.Haskell.Heed.Export.Bindings
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Schema hiding (Match(..))
 
+import Data.List
 import HsExpr
 import HsPat
 import HsBinds
@@ -125,7 +126,6 @@ exportExpression (L l (HsAppType expr typ))
   = export TypeApplicationE l [ exportExpression expr, exportType (hswc_body typ) ]
 exportExpression (L l (HsConLikeOut {})) = return () -- compiler generated thing
 exportExpression (L l (HsAppTypeOut {})) = return () -- compiler generated thing
-exportExpression (L l (HsRnBracketOut {})) = return () -- compiler generated thing
 exportExpression (L l (HsTcBracketOut {})) = return () -- compiler generated thing
 exportExpression (L l (ExprWithTySigOut {})) = return () -- compiler generated thing
 
@@ -162,7 +162,11 @@ exportFieldInits :: HsName n => Exporter (Located (HsRecFields n (LHsExpr n)))
 -- TODO: implicit field info
 -- (createImplicitFldInfo (unLoc . (\(HsVar n) -> n) . unLoc) (map unLoc implicitFlds))
 exportFieldInits (L l (HsRecFields fields dotdot))
-  = export FieldUpdates l [ mapM_ exportFieldInit fields, maybe (return ()) (\_ -> export FieldWildcard noSrcSpan []) dotdot ]
+  = export FieldUpdates l [ mapM_ exportFieldInit normalFlds
+                          , do maybe (return ()) (\_ -> export FieldWildcard noSrcSpan []) dotdot
+                               writeImplicitInfo (hsGetNames . (\(HsVar n) -> n) . unLoc) (map unLoc implicitFlds)
+                          ]
+  where (normalFlds, implicitFlds) = partition ((l /=) . getLoc) fields
 
 exportFieldInit :: HsName n => Exporter (Located (HsRecField n (LHsExpr n)))
 exportFieldInit (L l (HsRecField lbl _ True)) = export FieldPun l [ exportFieldOccName lbl ]

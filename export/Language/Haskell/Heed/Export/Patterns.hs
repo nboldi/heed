@@ -17,6 +17,9 @@ import SrcLoc
 import HsTypes
 import HsExpr
 import HsLit
+import Data.List
+import Outputable
+import Control.Monad.IO.Class
 
 exportPattern :: HsName n => Exporter (Located (Pat n))
 exportPattern (L l (VarPat name)) = export VariableP l [ defining (exportName name) ]
@@ -32,8 +35,8 @@ exportPattern (L l (TuplePat pats Unboxed _)) = export UnboxedTupleP l [ mapM_ e
 exportPattern (L l (PArrPat pats _)) = export ParallelArrayP l [ mapM_ exportPattern pats ]
 exportPattern (L l (ConPatIn name (PrefixCon args)))
   = export PrefixConstructorP l [ exportName name, mapM_ exportPattern args ]
-exportPattern (L l (ConPatIn name (RecCon (HsRecFields flds _))))
-  = export RecordConstructorP l [ exportName name, mapM_ exportPatternField flds ]
+exportPattern (L l (ConPatIn name (RecCon flds)))
+  = export RecordConstructorP l [ exportName name, exportPatternFields (L l flds) ]
 exportPattern (L l (ConPatIn name (InfixCon left right)))
   = export RecordConstructorP l [ exportPattern left, exportOperator name, exportPattern right ]
 exportPattern (L l p@(ConPatOut {})) = return () -- compiler-generated patterns
@@ -55,6 +58,14 @@ exportPattern (L l (NPlusKPat id (fmap ol_val -> lit) _ _ _ _))
 exportPattern (L l (CoPat _ pat _)) = exportPattern (L l pat) -- coercion pattern introduced by GHC
 exportPattern (L l (SumPat pat _ _ _))
   = export SumP l [ exportPattern pat ]
+
+exportPatternFields :: HsName n => Exporter (Located (HsRecFields n (LPat n)))
+exportPatternFields (L l (HsRecFields fields dotdot))
+  = export FieldPatterns l [ mapM_ exportPatternField normalFlds
+                           , do maybe (return ()) (\_ -> export FieldWildcard noSrcSpan []) dotdot
+                                writeImplicitInfo (hsGetNames . (\(VarPat n) -> n) . unLoc) (map unLoc implicitFlds)
+                           ]
+  where (normalFlds, implicitFlds) = partition ((l /=) . getLoc) fields
 
 exportPatternField :: HsName n => Exporter (Located (HsRecField n (LPat n)))
 exportPatternField (L l (HsRecField id arg False))

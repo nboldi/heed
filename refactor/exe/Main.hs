@@ -47,16 +47,21 @@ refactor span newName = withSQLite "haskell.db" $ do
 
   liftIO $ putStrLn $ show selectedName
   case selectedName of
-    [(uniq :*: namespace)] -> renameUnique newName uniq namespace
+    [uniq :*: namespace] -> do
+      associatedNames <- query $ do
+        bnd <- select implicitBinds
+        restrict $ (bnd ! imp_bind_lhs) .== text uniq
+        return (bnd ! imp_bind_rhs)
+      renameUnique newName (uniq : associatedNames) namespace
     _ -> liftIO $ putStrLn $ "No name found at selection: " ++ show span
 
-renameUnique :: String -> Text -> Text -> SeldaT IO ()
-renameUnique newName uniq namespace = do
+renameUnique :: String -> [Text] -> Text -> SeldaT IO ()
+renameUnique newName uniqs namespace = do
   rewritten <- query $ do
     n <- select names
     node <- select nodes
     restrict $ just (node ! node_id) .== n ! name_node
-    restrict $ n ! name_uniq .== text uniq
+    restrict $ n ! name_uniq `isIn` map text uniqs
     return (node ! node_file :*: node ! node_start_row :*: node ! node_start_col :*: node ! node_end_row :*: node ! node_end_col )
 
   align <- query $ distinct $ do
@@ -110,15 +115,15 @@ renameUnique newName uniq namespace = do
     isOuterScope sc sco
 
     -- the name found is the result of renaming, while the renamed is in scope  (and the name's definition is not closer to usage)
-    restrict $ occ ! name_namespace .== text namespace .&& occ ! name_str .== text (pack newName) .&& snm ! name_uniq .== text uniq
+    restrict $ occ ! name_namespace .== text namespace .&& occ ! name_str .== text (pack newName) .&& snm ! name_uniq `isIn` map text uniqs
                  .&& snmo ! name_uniq .== occ ! name_uniq
     -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming (and the renamed id's definition is not closer to usage)
-                .|| occ ! name_uniq .== text uniq .&& snm ! name_str .== text (pack newName)
-                     .&& snmo ! name_uniq .== text uniq
+                .|| occ ! name_uniq `isIn` map text uniqs .&& snm ! name_str .== text (pack newName)
+                     .&& snmo ! name_uniq `isIn` map text uniqs
     return ( node ! node_start_row :*: node ! node_start_col :*: snm ! name_str :*: snmo ! name_str )
 
       -- conflicts = map (map fromSql) clash
-  liftIO $ putStrLn $ show uniq
+  liftIO $ putStrLn $ show uniqs
   liftIO $ putStrLn $ show rewritten
   liftIO $ putStrLn $ show align
   liftIO $ putStrLn $ show clash

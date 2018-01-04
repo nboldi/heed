@@ -71,3 +71,6 @@ cleanDatabase = withForeignCheckTurnedOff $ do
 
    tryDropTable types
    createTable types
+
+   tryDropTable implicitBinds
+   createTable implicitBinds
