@@ -17,7 +17,9 @@ import Id
 import SrcLoc
 import Outputable (Outputable(..), OutputableBndr)
 import Bag
+import HscTypes
 
+import System.Directory
 import Control.Exception
 import Control.Monad.Reader
 import Database.Selda
@@ -30,14 +32,14 @@ import qualified Language.Haskell.Heed.Export.Schema as Schema
 
 data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , exportStage :: ExportStage
-                               , compiledModule :: Module
+                               , compiledModule :: ModSummary
                                , isDefining :: Bool
                                , scope :: Maybe RowID
                                }
 
 data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 
-initExportState :: ExportStage -> Module -> ExportState
+initExportState :: ExportStage -> ModSummary -> ExportState
 initExportState stage mod = ExportState Nothing stage mod False Nothing
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
@@ -121,12 +123,22 @@ lookupNameNode = prepared $ \file start_row start_col -> do
                     .|| n ! node_type .== int (typeId (undefined :: Schema.Operator)))
   return (n ! node_id)
 
+writeModule :: TrfType ()
+writeModule = do
+  ms <- asks compiledModule
+  let mod = ms_mod ms
+  sourcePath <- liftIO $ makeAbsolute (msHsFilePath ms)
+  lift $ insert_ modules [ def
+                            :*: pack (moduleNameString $ moduleName mod)
+                            :*: pack (show $ moduleUnitId mod)
+                            :*: pack sourcePath ]
+
 writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
   sc <- asks scope
   case sc of
     Just scope -> do
-      cm <- asks compiledModule
+      cm <- asks (ms_mod . compiledModule)
       defining <- asks isDefining
       let (file, start_row, start_col, _, _) = spanData sp
       [nodeId] <- lift $ lookupNameNode (pack file) start_row start_col
@@ -146,7 +158,7 @@ writeName sp name = do
 
 writeType :: SrcSpan -> Id -> TrfType ()
 writeType sp id = do
-  cm <- asks compiledModule
+  cm <- asks (ms_mod . compiledModule)
   let name = idName id
       (file, start_row, start_col, _, _) = spanData sp
       annot = showSDocUnsafe $ ppr $ idType id
@@ -161,7 +173,7 @@ writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
 
 doWriteImplicitInfo :: [(GHC.Name, GHC.Name)] -> TrfType ()
 doWriteImplicitInfo bindings
-  = do mod <- asks compiledModule
+  = do mod <- asks (ms_mod . compiledModule)
        lift $ insert_ implicitBinds (map (\(n1,n2) -> pack (createNameUnique mod n1)
                                                         :*: pack (createNameUnique mod n2)) bindings)
 

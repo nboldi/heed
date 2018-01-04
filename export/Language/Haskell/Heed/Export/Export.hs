@@ -45,9 +45,9 @@ exportSrcFile root modName doExport =
         transaction $ do
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
-          flip runReaderT (initExportState ParsedStage (ms_mod modSum)) $ exportModule $ parsedSource p
-          case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage (ms_mod modSum)) $ exportRnModule rs
-          flip runReaderT (initExportState TypedStage (ms_mod modSum)) $ exportTcModule $ typecheckedSource t
+          flip runReaderT (initExportState ParsedStage modSum) $ exportModule $ parsedSource p
+          case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage modSum) $ exportRnModule rs
+          flip runReaderT (initExportState TypedStage modSum) $ exportTcModule $ typecheckedSource t
 
 cleanDatabase :: SeldaT Ghc ()
 cleanDatabase = withForeignCheckTurnedOff $ do
@@ -74,3 +74,6 @@ cleanDatabase = withForeignCheckTurnedOff $ do
 
    tryDropTable implicitBinds
    createTable implicitBinds
+
+   tryDropTable modules
+   createTable modules

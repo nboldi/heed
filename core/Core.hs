@@ -89,6 +89,15 @@ attributes = table "attributes" $ required "container"
     :*: integer_attribute
     :*: fractional_attribute ) = selectors attributes
 
+type Module = RowID :*: Text :*: Text :*: Text
+
+modules :: Table Module
+modules = table "modules" $ autoPrimary "module_id"
+                              :*: required "module_name"
+                              :*: required "package_name"
+                              :*: required "module_source"
+(module_id :*: module_name :*: module_package :*: module_source) = selectors modules
+
 -- * Semantic information
 
 type Name = Maybe RowID :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int
