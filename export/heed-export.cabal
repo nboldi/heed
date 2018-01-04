@@ -33,6 +33,7 @@ library
                  , ghc-paths
                  , mtl
                  , selda
+                 , directory
                  , containers
                  , heed-core
                  , selda
@@ -47,7 +48,6 @@ executable heed-export
   build-depends:       base >=4.10 && <4.11
                      , ghc
                      , ghc-paths
-                     , directory
                      , mtl
                      , selda
                      , selda-sqlite

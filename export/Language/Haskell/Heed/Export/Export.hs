@@ -30,7 +30,7 @@ exportSrcFile root modName doExport =
       dflags <- liftGhc getSessionDynFlags
       void $ liftGhc $ setSessionDynFlags
         $ flip gopt_set Opt_KeepRawTokenStream
-        $ dflags { importPaths = [root] }
+        $ dflags { importPaths = [root] ++ importPaths dflags }
       target <- liftGhc $ guessTarget modName Nothing
       liftGhc $ setTargets [target]
       liftGhc $ load LoadAllTargets

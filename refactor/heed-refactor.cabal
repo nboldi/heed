@@ -15,16 +15,41 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
-executable heed-refactor
-  main-is:             Main.hs
-  -- other-modules:
-  -- other-extensions:
+library
   build-depends:       base >=4.10 && <4.11
+                     , ghc
                      , selda
                      , selda-sqlite
                      , strict
                      , split
                      , heed-core
                      , text
+  exposed-modules: Language.Haskell.Heed.Refactor.RenameDefinition
+  default-language: Haskell2010
+
+
+executable heed-refactor
+  main-is:             Main.hs
+  build-depends:       base >=4.10 && <4.11
+                     , ghc
+                     , selda
+                     , selda-sqlite
+                     , heed-refactor
   hs-source-dirs: exe
+  default-language: Haskell2010
+
+test-suite heed-refactor-tests
+  type:                exitcode-stdio-1.0
+  main-is:             Main.hs
+  hs-source-dirs:      test
+  build-depends:       base >=4.10 && <4.11
+                     , selda
+                     , selda-sqlite
+                     , tasty
+                     , tasty-hunit
+                     , filepath
+                     , strict
+                     , heed-refactor
+                     , heed-export
+  hs-source-dirs: test
   default-language: Haskell2010
