@@ -82,7 +82,6 @@ class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, Compilati
       => HsName n where
   exportName :: Exporter (Located n)
   exportOperator :: Exporter (Located n)
-  exportRnName :: (forall x . HsName x => Exporter (Located x)) -> Located RdrName -> Exporter (Located (PostRn n n))
   exportNameOrRdrName :: (forall x . HsName x => Exporter (Located x)) -> Exporter (Located (NameOrRdrName n))
   exportFieldOccName :: Exporter (Located (FieldOcc n))
   exportAmbiguous :: (forall x . HsName x => Exporter (Located x)) -> Exporter (Located (AmbiguousFieldOcc n))

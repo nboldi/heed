@@ -274,8 +274,11 @@ exportPatternSynonymLhs n (InfixPatSyn lhs rhs)
   = export InfixPatSynLhs (combineLocated [lhs,rhs])
       [ exportName lhs, defining (exportOperator n), exportName rhs ]
 exportPatternSynonymLhs n (RecordPatSyn flds)
-  = export RecordPatSynLhs (combineLocated (map recordPatSynSelectorId flds))
-      [ defining (exportName n), mapM_ (exportName . recordPatSynSelectorId) flds ]
+  = do doWriteImplicitInfo $ catMaybes
+         $ map (\r -> case (hsGetNames (recordPatSynSelectorId r), hsGetNames (recordPatSynPatVar r)) of
+                        (n1:_,n2:_) -> Just (n1,n2); _ -> Nothing) flds
+       export RecordPatSynLhs (combineLocated (map recordPatSynSelectorId flds))
+         [ defining (exportName n), mapM_ (exportName . recordPatSynSelectorId) flds ]
 
 exportPatternSynonymRhs :: HsName n => HsPatSynDir n -> Exporter (Located (Pat n))
 exportPatternSynonymRhs ImplicitBidirectional (L l pat)

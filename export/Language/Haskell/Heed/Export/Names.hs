@@ -49,18 +49,16 @@ instance HsName RdrName where
           pLoc = updateStart (updateCol (+1)) $ updateEnd (updateCol (subtract 1)) l
 
   exportNameOrRdrName exporter = exporter
-  exportRnName exporter rdr _ = exporter rdr
   exportFieldOccName (L _ (FieldOcc rdr _)) = exportName rdr
-  exportAmbiguous _ _ = error "exportAmbiguous: RdrName" -- not called
+  exportAmbiguous _ (L l ambiguous) = exportName (L l $ rdrNameAmbiguousFieldOcc ambiguous)
 
 instance HsName GHC.Name where
   exportName (L l n) = writeName l n
   exportOperator (L l n) = writeName l n
   exportNameOrRdrName exporter = exporter
-  exportRnName exporter _ = exporter
   exportFieldOccName (L l (FieldOcc _ name)) = exportName (L l name)
 
-  exportAmbiguous exporter (L l (Unambiguous rdr pr)) = exportRnName @GHC.Name exporter rdr (L l pr)
+  exportAmbiguous exporter (L l (Unambiguous rdr pr)) = exporter (L l pr)
   exportAmbiguous exporter (L l (Ambiguous rdr _))
     = do sc <- asks scope
          case sc of Just scope -> tell (ExportStore [ (l, scope) ])
@@ -74,9 +72,9 @@ instance HsName Id where
   exportOperator (L l n) = do when (isRecordSelector n) $ writeName l (idName n)
                               writeType l n
   exportNameOrRdrName exporter = exporter
-  exportRnName exporter _ = exporter
   exportFieldOccName (L l (FieldOcc _ n)) = writeType l n
-  exportAmbiguous _ _ = error "exportAmbiguous: Id"  -- not called
+  exportAmbiguous exporter (L l (Unambiguous _ pr)) = exporter (L l pr)
+  exportAmbiguous exporter (L l (Ambiguous _ pr)) = exporter (L l pr)
 
 exportImplicitName :: Exporter (Located HsIPName)
 exportImplicitName (L l (HsIPName fs))
