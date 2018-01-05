@@ -27,10 +27,10 @@ import Control.Monad.IO.Class
 exportExpression :: HsName n => Exporter (Located (HsExpr n))
 exportExpression (L l (OpApp e1 (L _ (HsVar op)) _ e2))
   = export InfixAppE l [ exportExpression e1, exportOperator op, exportExpression e2 ]
-exportExpression (L l (HsVar name)) = export VarE l [ exportName name ]
+exportExpression (L l (HsVar name)) = export VarE l [ exportName (L l (unLoc name)) ]
 exportExpression (L l (HsUnboundVar name))
   = export VarE l [ writeStringAttribute (occNameString (unboundVarOcc name)) ]
-exportExpression (L l (HsRecFld fld)) = export VarE l [ exportAmbiguousFieldName (L l fld) ]
+exportExpression (L l (HsRecFld fld)) = export VarE l [ exportAmbiguous exportName (L l fld) ]
 exportExpression (L l (HsIPVar ip)) = export VarE l [ exportImplicitName (L l ip) ]
 exportExpression (L l (HsOverLit (ol_val -> val))) = export LiteralE l [ exportPolyLiteral (L l val) ]
 exportExpression (L l (HsLit val)) = export LiteralE l [ exportMonoLiteral (L l val) ]
@@ -43,20 +43,20 @@ exportExpression (L l (HsApp e1 e2)) = export AppE l [ exportExpression e1, expo
 exportExpression (L l (OpApp e1 (unLoc . cleanExpr -> HsVar op) _ e2))
   = export InfixAppE l [ exportExpression e1, exportOperator op, exportExpression e2 ]
 exportExpression (L l (OpApp e1 (cleanExpr -> L l' (HsRecFld op)) _ e2))
-  = export InfixAppE l [ exportExpression e1, exportAmbiguousOperator (L l' op), exportExpression e2 ]
+  = export InfixAppE l [ exportExpression e1, exportAmbiguous exportOperator (L l' op), exportExpression e2 ]
 exportExpression (L _ (OpApp _ (cleanExpr -> L _ (HsConLikeOut {})) _ _)) = return () -- compiler-generated
 exportExpression (L _ (OpApp _ (L l op) _ _)) = exportError "operator expression" (unLoc $ cleanExpr (L l op))
 exportExpression (L l (NegApp e _)) = export PrefixAppE l [ exportExpression e ] -- TODO: name for negative sign
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (unLoc . cleanExpr -> HsVar op))))
   = export LeftSectionE l [ exportExpression expr, exportOperator op ]
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (L l' (HsRecFld op)))))
-  = export LeftSectionE l [ exportExpression expr, exportAmbiguousOperator (L l' op) ]
+  = export LeftSectionE l [ exportExpression expr, exportAmbiguous exportOperator (L l' op) ]
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr right)))
   = exportError "right section expression" (unLoc (cleanExpr right))
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (unLoc . cleanExpr -> HsVar op) expr)))
   = export RightSectionE l [ exportOperator op, exportExpression expr ]
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (L l' (HsRecFld op)) expr)))
-  = export RightSectionE l [ exportAmbiguousOperator (L l' op), exportExpression expr ]
+  = export RightSectionE l [ exportAmbiguous exportOperator (L l' op), exportExpression expr ]
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR left expr)))
   = exportError "left section expression" (unLoc (cleanExpr left))
 exportExpression (L l (HsPar expr)) = export ParenE l [ exportExpression expr ]
@@ -174,9 +174,9 @@ exportFieldInit (L l (HsRecField lbl arg False))
   = export NormalFieldUpdate l [ exportFieldOccName lbl, exportExpression arg ]
 
 exportFieldUpdate :: HsName n => Exporter (Located (HsRecField' (AmbiguousFieldOcc n) (LHsExpr n)))
-exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguousFieldName lbl ]
+exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguous exportName lbl ]
 exportFieldUpdate (L l (HsRecField lbl val False))
-  = export NormalFieldUpdate l [ exportAmbiguousFieldName lbl, exportExpression val ]
+  = export NormalFieldUpdate l [ exportAmbiguous exportName lbl, exportExpression val ]
 --
 -- trfCmdTop :: TransformName n r => Located (HsCmdTop n) -> Trf (Ann AST.UCmd (Dom r) RangeStage)
 -- trfCmdTop (L _ (HsCmdTop cmd _ _ _)) = trfCmd cmd

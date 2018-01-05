@@ -22,6 +22,7 @@ import HscTypes
 import System.Directory
 import Control.Exception
 import Control.Monad.Reader
+import Control.Monad.Writer
 import Database.Selda
 import Core
 import Data.Data
@@ -35,14 +36,27 @@ data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , compiledModule :: ModSummary
                                , isDefining :: Bool
                                , scope :: Maybe RowID
+                               , ambiguousNames :: [(SrcSpan, RowID)]
                                }
+
+data ExportStore = ExportStore [(SrcSpan, RowID)]
+
+emptyStore :: ExportStore
+emptyStore = ExportStore []
+
+instance Monoid ExportStore where
+  mempty = ExportStore []
+  mappend (ExportStore an1) (ExportStore an2) = ExportStore (an1 ++ an2)
 
 data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 
-initExportState :: ExportStage -> ModSummary -> ExportState
-initExportState stage mod = ExportState Nothing stage mod False Nothing
+liftSelda :: SeldaT Ghc a -> TrfType a
+liftSelda = lift . lift
 
-type TrfType = ReaderT ExportState (SeldaT Ghc)
+initExportState :: ExportStage -> ModSummary -> ExportStore -> ExportState
+initExportState stage mod (ExportStore amb) = ExportState Nothing stage mod False Nothing amb
+
+type TrfType = ReaderT ExportState (WriterT ExportStore (SeldaT Ghc))
 
 type Exporter n = n -> TrfType ()
 
@@ -71,6 +85,7 @@ class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, Compilati
   exportRnName :: (forall x . HsName x => Exporter (Located x)) -> Located RdrName -> Exporter (Located (PostRn n n))
   exportNameOrRdrName :: (forall x . HsName x => Exporter (Located x)) -> Exporter (Located (NameOrRdrName n))
   exportFieldOccName :: Exporter (Located (FieldOcc n))
+  exportAmbiguous :: (forall x . HsName x => Exporter (Located x)) -> Exporter (Located (AmbiguousFieldOcc n))
 
 goInto :: Maybe RowID -> Int -> TrfType a -> TrfType a
 goInto (Just id) ref = local (\s -> s { parentData = Just (id, ref) })
@@ -89,10 +104,10 @@ writeInsert' :: Schema s => s -> SrcSpan -> TrfType RowID
 writeInsert' ctor loc = do
   parentRef <- asks parentData
   let (file, start_row, start_col, end_row, end_col) = spanData loc
-  lift $ insertWithPK nodes [ def :*: fmap fst parentRef :*: typeId ctor
-                                :*: constrIndex (toConstr ctor) :*: pack file
-                                :*: start_row :*: start_col :*: end_row :*: end_col
-                                :*: fmap snd parentRef ]
+  liftSelda $ insertWithPK nodes [ def :*: fmap fst parentRef :*: typeId ctor
+                                     :*: constrIndex (toConstr ctor) :*: pack file
+                                     :*: start_row :*: start_col :*: end_row :*: end_col
+                                     :*: fmap snd parentRef ]
 
 writeIntAttribute :: Int -> TrfType ()
 writeIntAttribute i = writeAttribute (Nothing :*: Just i :*: Nothing)
@@ -110,7 +125,7 @@ writeAttribute :: ( Maybe Text :*: Maybe Int :*: Maybe Double ) -> TrfType ()
 writeAttribute d = do
   pd <- asks parentData
   case pd of
-    Just (parentId, parentRef) -> lift $ insert_ attributes [ parentId :*: parentRef :*: d ]
+    Just (parentId, parentRef) -> liftSelda $ insert_ attributes [ parentId :*: parentRef :*: d ]
     Nothing -> return () -- not in export-syntax mode
 
 lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
@@ -128,33 +143,35 @@ writeModule = do
   ms <- asks compiledModule
   let mod = ms_mod ms
   sourcePath <- liftIO $ makeAbsolute (msHsFilePath ms)
-  lift $ insert_ modules [ def
-                            :*: pack (moduleNameString $ moduleName mod)
-                            :*: pack (show $ moduleUnitId mod)
-                            :*: pack sourcePath ]
+  liftSelda $ insert_ modules [ def :*: pack (moduleNameString $ moduleName mod)
+                                    :*: pack (show $ moduleUnitId mod)
+                                    :*: pack sourcePath ]
 
 writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
   sc <- asks scope
   case sc of
-    Just scope -> do
-      cm <- asks (ms_mod . compiledModule)
-      defining <- asks isDefining
-      let (file, start_row, start_col, _, _) = spanData sp
-      [nodeId] <- lift $ lookupNameNode (pack file) start_row start_col
-
-      let (d_file, d_start_row, d_start_col, d_end_row, d_end_col)
-            = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
-                                                          , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
-                                                          , Just (srcSpanEndCol rsp) )
-                                       _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
-
-          uniq = createNameUnique cm name
-          namespace = occNameSpace $ nameOccName name
-          nameStr = occNameString $ nameOccName name
-      lift $ insert_ names [ Just nodeId :*: scope :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
-                               :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
+    Just scope -> doWriteName sp name scope
     Nothing -> return ()
+
+doWriteName :: SrcSpan -> GHC.Name -> RowID -> TrfType ()
+doWriteName sp name scope = do
+  cm <- asks (ms_mod . compiledModule)
+  defining <- asks isDefining
+  let (file, start_row, start_col, _, _) = spanData sp
+  [nodeId] <- lift $ lift $ lookupNameNode (pack file) start_row start_col
+
+  let (d_file, d_start_row, d_start_col, d_end_row, d_end_col)
+        = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
+                                                      , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
+                                                      , Just (srcSpanEndCol rsp) )
+                                   _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
+
+      uniq = createNameUnique cm name
+      namespace = occNameSpace $ nameOccName name
+      nameStr = occNameString $ nameOccName name
+  liftSelda $ insert_ names [ Just nodeId :*: scope :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
+                               :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
 
 writeType :: SrcSpan -> Id -> TrfType ()
 writeType sp id = do
@@ -163,7 +180,7 @@ writeType sp id = do
       (file, start_row, start_col, _, _) = spanData sp
       annot = showSDocUnsafe $ ppr $ idType id
       uniq = createNameUnique cm name
-  lift $ insert_ types [ pack uniq :*: pack annot ]
+  liftSelda $ insert_ types [ pack uniq :*: pack annot ]
 
 writeImplicitInfo :: (HsName n, HsHasName (FieldOcc n)) => (a -> [GHC.Name]) -> [HsRecField n a] -> TrfType ()
 writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
@@ -174,8 +191,8 @@ writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
 doWriteImplicitInfo :: [(GHC.Name, GHC.Name)] -> TrfType ()
 doWriteImplicitInfo bindings
   = do mod <- asks (ms_mod . compiledModule)
-       lift $ insert_ implicitBinds (map (\(n1,n2) -> pack (createNameUnique mod n1)
-                                                        :*: pack (createNameUnique mod n2)) bindings)
+       liftSelda $ insert_ implicitBinds (map (\(n1,n2) -> pack (createNameUnique mod n1)
+                                                             :*: pack (createNameUnique mod n2)) bindings)
 
 
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
@@ -208,7 +225,7 @@ addToScope sp act = do
 doAddToScope :: SrcSpan -> TrfType () -> TrfType ()
 doAddToScope sp act = do
   let (file, start_row, start_col, end_row, end_col) = spanData sp
-  newScope <- lift $ insertWithPK scopes [ def :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col ]
+  newScope <- liftSelda $ insertWithPK scopes [ def :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col ]
   local (\s -> s { scope = Just newScope }) act
 
 scopedSequence :: (Exporter (Located e)) -> Exporter [Located e]

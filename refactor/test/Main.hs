@@ -37,8 +37,8 @@ checkCorrectlyRefactored (mn, span, newName)
         resFileName = root </> map (\case '.' -> pathSeparator; c -> c) mn ++ "_res.hs"
 
 renameDefinitionTests =
-  [ {- ("Refactor.RenameDefinition.AmbiguousFields", "4:14-4:15", "xx")
-  , -} ("Refactor.RenameDefinition.RecordField", "3:22-3:23", "xCoord")
+  [ ("Refactor.RenameDefinition.AmbiguousFields", "4:14-4:15", "xx")
+  , ("Refactor.RenameDefinition.RecordField", "3:22-3:23", "xCoord")
   , ("Refactor.RenameDefinition.Constructor", "3:14-3:19", "Point2D")
   , ("Refactor.RenameDefinition.Type", "5:16-5:16", "Point2D")
   , ("Refactor.RenameDefinition.Function", "3:1-3:2", "q")

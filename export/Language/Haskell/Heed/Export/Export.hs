@@ -8,6 +8,7 @@
 module Language.Haskell.Heed.Export.Export where
 
 import Control.Monad.Reader
+import Control.Monad.Writer
 import Database.Selda
 import Database.Selda.SQLite
 import Data.Maybe
@@ -45,9 +46,10 @@ exportSrcFile root modName doExport =
         transaction $ do
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
-          flip runReaderT (initExportState ParsedStage modSum) $ exportModule $ parsedSource p
-          case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage modSum) $ exportRnModule rs
-          flip runReaderT (initExportState TypedStage modSum) $ exportTcModule $ typecheckedSource t
+          runWriterT $ flip runReaderT (initExportState ParsedStage modSum emptyStore) $ exportModule $ parsedSource p
+          store <- execWriterT $ case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage modSum emptyStore) $ exportRnModule rs
+          runWriterT $ flip runReaderT (initExportState TypedStage modSum store) $ exportTcModule $ typecheckedSource t
+          return ()
 
 cleanDatabase :: SeldaT Ghc ()
 cleanDatabase = withForeignCheckTurnedOff $ do

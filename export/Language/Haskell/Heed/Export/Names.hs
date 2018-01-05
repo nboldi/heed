@@ -3,13 +3,15 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-module Language.Haskell.Heed.Export.Names (exportOperator, exportImplicitName, exportAmbiguousOperator, exportAmbiguousFieldName) where
+module Language.Haskell.Heed.Export.Names where
 
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Schema
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Reader
+import Control.Monad.Writer
 import RdrName
 import Data.List
 import Data.Data
@@ -49,6 +51,7 @@ instance HsName RdrName where
   exportNameOrRdrName exporter = exporter
   exportRnName exporter rdr _ = exporter rdr
   exportFieldOccName (L _ (FieldOcc rdr _)) = exportName rdr
+  exportAmbiguous _ _ = error "exportAmbiguous: RdrName" -- not called
 
 instance HsName GHC.Name where
   exportName (L l n) = writeName l n
@@ -57,21 +60,23 @@ instance HsName GHC.Name where
   exportRnName exporter _ = exporter
   exportFieldOccName (L l (FieldOcc _ name)) = exportName (L l name)
 
+  exportAmbiguous exporter (L l (Unambiguous rdr pr)) = exportRnName @GHC.Name exporter rdr (L l pr)
+  exportAmbiguous exporter (L l (Ambiguous rdr _))
+    = do sc <- asks scope
+         case sc of Just scope -> tell (ExportStore [ (l, scope) ])
+                    Nothing -> return ()
+
 instance HsName Id where
-  exportName (L l n) = writeType l n
-  exportOperator (L l n) = writeType l n
+  exportName (L l n) = do when (isRecordSelector n) $ do
+                            scopeId <- asks (lookup l . ambiguousNames)
+                            maybe (return ()) (doWriteName l (idName n)) scopeId
+                          writeType l n
+  exportOperator (L l n) = do when (isRecordSelector n) $ writeName l (idName n)
+                              writeType l n
   exportNameOrRdrName exporter = exporter
   exportRnName exporter _ = exporter
   exportFieldOccName (L l (FieldOcc _ n)) = writeType l n
-
-
-exportAmbiguousFieldName :: forall n . HsName n => Exporter (Located (AmbiguousFieldOcc n))
-exportAmbiguousFieldName (L l (Unambiguous rdr pr)) = exportRnName @n exportName rdr (L l pr)
-exportAmbiguousFieldName (L l (Ambiguous rdr _)) = exportName rdr
-
-exportAmbiguousOperator :: forall n . HsName n => Exporter (Located (AmbiguousFieldOcc n))
-exportAmbiguousOperator (L l (Unambiguous rdr pr)) = exportRnName @n exportOperator rdr (L l pr)
-exportAmbiguousOperator (L l (Ambiguous rdr _)) = exportOperator rdr
+  exportAmbiguous _ _ = error "exportAmbiguous: Id"  -- not called
 
 exportImplicitName :: Exporter (Located HsIPName)
 exportImplicitName (L l (HsIPName fs))
