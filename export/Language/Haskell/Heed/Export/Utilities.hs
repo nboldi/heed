@@ -18,6 +18,7 @@ import SrcLoc
 import Outputable (Outputable(..), OutputableBndr)
 import Bag
 import HscTypes
+import Type
 
 import System.Directory
 import Control.Exception
@@ -25,7 +26,9 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Database.Selda
 import Core
-import Data.Data
+import Data.Maybe
+import Data.List
+import Data.Data hiding (typeRep)
 import Data.Text (pack)
 
 import Language.Haskell.Heed.Schema (Schema(..))
@@ -177,9 +180,9 @@ writeType sp id = do
   cm <- asks (ms_mod . compiledModule)
   let name = idName id
       (file, start_row, start_col, _, _) = spanData sp
-      annot = showSDocUnsafe $ ppr $ idType id
       uniq = createNameUnique cm name
-  liftSelda $ insert_ types [ pack uniq :*: pack annot ]
+  let typeRep = toTypeRep cm (idType id)
+  liftSelda $ insert_ types [ pack uniq :*: pack (show typeRep) ]
 
 writeImplicitInfo :: (HsName n, HsHasName (FieldOcc n)) => (a -> [GHC.Name]) -> [HsRecField n a] -> TrfType ()
 writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
@@ -193,6 +196,36 @@ doWriteImplicitInfo bindings
        liftSelda $ insert_ implicitBinds (map (\(n1,n2) -> pack (createNameUnique mod n1)
                                                              :*: pack (createNameUnique mod n2)) bindings)
 
+writeCtors :: GHC.Name -> [GHC.Name] -> TrfType ()
+writeCtors tn cns = do
+  mod <- asks (ms_mod . compiledModule)
+  liftSelda $ insert_ typeCtors (map (\cn -> pack (createNameUnique mod tn) :*: pack (createNameUnique mod cn)) cns)
+
+writeFields :: GHC.Name -> [GHC.Name] -> TrfType ()
+writeFields cn fls = do
+  mod <- asks (ms_mod . compiledModule)
+  liftSelda $ insert_ ctorFields (map (\fl -> pack (createNameUnique mod cn) :*: pack (createNameUnique mod fl)) fls)
+
+toTypeRep :: GHC.Module -> GHC.Type -> TypeRepresentation
+toTypeRep mod t
+  | Just tv <- getTyVar_maybe t
+  = TRVar (createNameUnique mod (getName tv))
+  | (args, res) <- splitFunTys t, not (null args)
+  = TRFun (map (toTypeRep mod) args) (toTypeRep mod res)
+  | Just (base, arg) <- splitAppTy_maybe t
+  = TRApp (toTypeRep mod base) (toTypeRep mod arg)
+  | Just (tc, args) <- splitTyConApp_maybe t
+  = TRConApp (createNameUnique mod (getName tc)) (map (toTypeRep mod) args)
+  | (tvs, t') <- splitForAllTys t, not (null tvs)
+  = TRForAll (map (createNameUnique mod . getName) tvs) (toTypeRep mod t')
+  | Just i <- isNumLitTy t
+  = TRNumLit i
+  | Just str <- isStrLitTy t
+  = TRStringLit (unpackFS str)
+  | Just (t',_) <- splitCastTy_maybe t
+  = toTypeRep mod t'
+  | isCoercionType t
+  = TRCoercion
 
 spanData :: SrcSpan -> (String, Int, Int, Int, Int)
 spanData sp = case sp of RealSrcSpan rsp -> ( unpackFS (srcSpanFile rsp)

@@ -8,10 +8,11 @@ module Core where
 import Control.Monad
 import Control.Exception (throwIO)
 import Control.Monad.Trans.Class
-import Data.Data
+import Data.Data (Data(..))
 import Data.List
+import Data.Maybe
 
-import Data.Text
+import Data.Text (pack)
 
 import Database.Selda
 import Control.Monad.Catch
@@ -132,15 +133,26 @@ type Type = Text :*: Text
 types :: Table Type
 types = table "types" $ required "type_name" -- `fk` (names, name_uniq)
                           :*: required "type_desc"
-( type_name :*: type_desc ) = selectors names
+( type_name :*: type_desc ) = selectors types
 
 type ImplicitBinds = Text :*: Text
 
-implicitBinds :: Table Type
+implicitBinds :: Table ImplicitBinds
 implicitBinds = table "implicit_binds" $ required "imp_bind_lhs"
                                            :*: required "imp_bind_rhs"
 ( imp_bind_lhs :*: imp_bind_rhs ) = selectors implicitBinds
 
+type CtorField = Text :*: Text
+
+ctorFields :: Table CtorField
+ctorFields = table "ctor_fields" $ required "cf_constructor" :*: required "cf_field"
+( cf_constructor :*: cf_field ) = selectors ctorFields
+
+type TypeCtor = Text :*: Text
+
+typeCtors :: Table TypeCtor
+typeCtors = table "type_ctors" $ required "tc_type" :*: required "tc_ctor"
+( ct_type :*: ct_ctor ) = selectors typeCtors
 
 type Scope = RowID :*: Text :*: Int :*: Int :*: Int :*: Int
 
@@ -193,3 +205,33 @@ comments = table "comments" $ required "file"
     :*: comment_end_col
     :*: comment_type
     :*: comment_str ) = selectors comments
+
+data TypeRepresentation = TRForAll [String] TypeRepresentation
+                        | TRVar String
+                        | TRFun [TypeRepresentation] TypeRepresentation
+                        | TRApp TypeRepresentation TypeRepresentation
+                        | TRConApp String [TypeRepresentation]
+                        | TRNumLit Integer
+                        | TRStringLit String
+                        | TRCoercion
+  deriving (Show, Read)
+
+typeRepEq :: TypeRepresentation -> TypeRepresentation -> Bool
+typeRepEq = compareTypeRep []
+
+compareTypeRep :: [(String,String)] -> TypeRepresentation -> TypeRepresentation -> Bool
+compareTypeRep env (TRForAll vars1 t1) (TRForAll vars2 t2)
+  = compareTypeRep (env ++ zip vars1 vars2) t1 t2
+compareTypeRep env (TRVar v1) (TRVar v2)
+  = case find ((==v1) . fst) env of Just (v1',v2') -> v2 == v2'
+                                    Nothing -> isNothing (find ((==v2) . snd) env) && v1 == v2
+compareTypeRep env (TRFun args1 res1) (TRFun args2 res2)
+  = and (zipWith (compareTypeRep env) args1 args2) && compareTypeRep env res1 res2
+compareTypeRep env (TRApp base1 arg1) (TRApp base2 arg2)
+  = compareTypeRep env base1 base2 && compareTypeRep env arg1 arg2
+compareTypeRep env (TRConApp base1 args1) (TRConApp base2 args2)
+  = base1 == base2 && and (zipWith (compareTypeRep env) args1 args2)
+compareTypeRep _ (TRNumLit i1) (TRNumLit i2) = i1 == i2
+compareTypeRep _ (TRStringLit s1) (TRStringLit s2) = s1 == s2
+compareTypeRep _ TRCoercion TRCoercion = True
+compareTypeRep _ _ _ = False

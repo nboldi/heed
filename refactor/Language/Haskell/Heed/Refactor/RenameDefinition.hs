@@ -10,6 +10,7 @@ import Database.Selda.SQLite
 import Data.Text (pack, unpack, cons)
 import SrcLoc
 import Data.List
+import Data.Maybe
 import FastString
 import System.IO hiding (hGetContents)
 import System.IO.Strict (hGetContents)
@@ -36,8 +37,6 @@ renameDefinition newName srcSpan = do
         bnd <- select implicitBinds
         restrict $ (bnd ! imp_bind_lhs) .== text uniq
         return (bnd ! imp_bind_rhs)
-      -- liftIO $ putStrLn $ "uniq: " ++ show uniq
-      -- liftIO $ putStrLn $ "associatedNames: " ++ show associatedNames
       renameUnique newName original (uniq : associatedNames) namespace
     _ -> return $ Left $ "No name found at selection: " ++ show srcSpan
 
@@ -54,7 +53,6 @@ renameUnique newName original uniqs namespace = do
                  .&& n ! name_namespace .== text namespace
     return ( unqualNode ! node_file :*: unqualNode ! node_start_row :*: unqualNode ! node_start_col
                :*: unqualNode ! node_end_row :*: unqualNode ! node_end_col )
-  -- liftIO $ putStrLn $ "renameRanges: " ++ show renameRanges
 
   align <- query $ distinct $ do
     let inRow node (fl :*: _ :*: _ :*: er :*: ec)
@@ -92,6 +90,7 @@ renameUnique newName original uniqs namespace = do
     restrict $ just (node ! node_id) .== occ ! name_node
     restrict $ snm ! name_defining .&& sc ! scope_id .== snm ! name_scope -- snm is defined in sc
     restrict $ snmo ! name_defining .&& sco ! scope_id .== snmo ! name_scope -- snmo is defined in sco
+
     let nameInScope occ sc = do
           restrict $ (sc ! scope_start_row .< node ! node_start_row
                         .|| sc ! scope_start_row .== node ! node_start_row .&& sc ! scope_start_col .<= node ! node_start_col)
@@ -107,14 +106,36 @@ renameUnique newName original uniqs namespace = do
     isOuterScope sc sco
 
     -- the name found is the result of renaming, while the renamed is in scope  (and the name's definition is not closer to usage)
-    restrict $ occ ! name_namespace .== text namespace .&& occ ! name_str .== text (pack newName) .&& snm ! name_uniq `isIn` map text uniqs
+    restrict $ occ ! name_namespace .== text namespace
+                 .&& occ ! name_str .== text (pack newName)
+                 .&& snm ! name_uniq `isIn` map text uniqs
                  .&& snmo ! name_uniq .== occ ! name_uniq
     -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming (and the renamed id's definition is not closer to usage)
-                .|| occ ! name_uniq `isIn` map text uniqs .&& snm ! name_str .== text (pack newName)
-                     .&& snmo ! name_uniq `isIn` map text uniqs .&& snm ! name_namespace .== text namespace
-    return ( node ! node_start_row :*: node ! node_start_col :*: snm ! name_str :*: snmo ! name_str )
+                .|| occ ! name_uniq `isIn` map text uniqs
+                     .&& snm ! name_str .== text (pack newName)
+                     .&& snmo ! name_uniq `isIn` map text uniqs
+                     .&& snm ! name_namespace .== text namespace
+    return ( node ! node_start_row :*: node ! node_start_col :*: snm ! name_uniq :*: snmo ! name_uniq )
 
-  case clash of
+  -- find the fields that could be merged with the name
+  mergeableCandidate <- query $ do
+    nCtor <- select ctorFields
+    occCtor <- select ctorFields
+    nTyp <- select typeCtors
+    occTyp <- select typeCtors
+    nType <- select types
+    occType <- select types
+    restrict $ nCtor ! cf_field `isIn` (map text uniqs)
+                 .&& nCtor ! cf_constructor .== nTyp ! ct_ctor
+                 .&& occCtor ! cf_constructor .== occTyp ! ct_ctor
+                 .&& nTyp ! ct_type .== occTyp ! ct_type
+                 .&& nTyp ! ct_ctor ./= occTyp ! ct_ctor
+                 .&& occCtor ! cf_field .== occType ! type_name
+                 .&& nCtor ! cf_field .== nType ! type_name
+    return (occCtor ! cf_field :*: occType ! type_desc :*: nType ! type_desc )
+  let mergeable = catMaybes $ map (\( name :*: t1 :*: t2 ) -> if read (unpack t1) `typeRepEq` read (unpack t2) then Just name else Nothing) mergeableCandidate
+
+  case filter (\(r :*: c :*: n1 :*: n2) -> n1 `notElem` mergeable && n2 `notElem` mergeable) clash of
     [] -> do
       let nameLengthChange = length newName - length (unpack original)
           nameExtend = if nameLengthChange > 0 then nameLengthChange else 0

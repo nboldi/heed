@@ -79,3 +79,9 @@ cleanDatabase = withForeignCheckTurnedOff $ do
 
    tryDropTable modules
    createTable modules
+
+   tryDropTable ctorFields
+   createTable ctorFields
+
+   tryDropTable typeCtors
+   createTable typeCtors

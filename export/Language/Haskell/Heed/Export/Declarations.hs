@@ -69,20 +69,24 @@ exportDeclaration (L l (TyClD (SynDecl name vars _ rhs _)))
   = export TypeSynonymD l [ exportName name, mapM_ exportTypeVar (hsq_explicit vars), exportType rhs ]
 exportDeclaration (L l (TyClD (DataDecl name vars _ (HsDataDefn nd ctx _ kind cons derivs) _ _)))
   | all (isNormalCons . unLoc) cons
-  = export DataD l [ exportDataKeyword (L l nd)
-                   , exportDeclHead name vars
-                   , exportContext ctx
-                   , mapM_ exportConstructor cons
-                   , mapM_ exportDerivings (unLoc derivs)
-                   ]
+  = do case hsGetNames name of tn:_ -> writeCtors tn (concatMap (hsGetNames . con_name . unLoc) cons)
+                               _    -> return ()
+       export DataD l [ exportDataKeyword (L l nd)
+                      , exportDeclHead name vars
+                      , exportContext ctx
+                      , mapM_ exportConstructor cons
+                      , mapM_ exportDerivings (unLoc derivs)
+                      ]
   | otherwise
-  = export GDataD l [ exportDataKeyword (L l nd)
-                    , exportDeclHead name vars
-                    , exportContext ctx
-                    , exportKindSignature kind
-                    , mapM_ exportGADTConstructor cons
-                    , mapM_ exportDerivings (unLoc derivs)
-                    ]
+  = do case hsGetNames name of tn:_ -> writeCtors tn (concatMap (concatMap hsGetNames . con_names . unLoc) cons)
+                               _    -> return ()
+       export GDataD l [ exportDataKeyword (L l nd)
+                       , exportDeclHead name vars
+                       , exportContext ctx
+                       , exportKindSignature kind
+                       , mapM_ exportGADTConstructor cons
+                       , mapM_ exportDerivings (unLoc derivs)
+                       ]
   where isNormalCons ConDeclH98{} = True
         isNormalCons _ = False
 exportDeclaration (L l (TyClD (ClassDecl ctx name vars _ funDeps sigs defs typeFuns typeFunDefs _ _)))
@@ -154,8 +158,10 @@ exportConstructor (L l (ConDeclH98 { con_name = name, con_qvars = tyVars, con_cx
                          , defining (exportName name), mapM_ exportType args ]
 exportConstructor (L l (ConDeclH98 { con_name = name, con_qvars = tyVars, con_cxt = ctx
                                    , con_details = RecCon (unLoc -> flds) }))
-  = export RecordConstructor l [ mapM_ exportTypeVar (maybe [] hsq_explicit tyVars), maybe (return ()) exportContext ctx
-                               , defining (exportName name), mapM_ exportFieldDecl flds ]
+  = do case hsGetNames name of tn:_ -> writeFields tn (concatMap (concatMap hsGetNames . cd_fld_names . unLoc) flds)
+                               _    -> return ()
+       export RecordConstructor l [ mapM_ exportTypeVar (maybe [] hsq_explicit tyVars), maybe (return ()) exportContext ctx
+                                  , defining (exportName name), mapM_ exportFieldDecl flds ]
 exportConstructor (L l (ConDeclH98 { con_name = name, con_qvars = tyVars, con_cxt = ctx
                                    , con_details = InfixCon t1 t2 }))
   = export InfixConstructor l [ mapM_ exportTypeVar (maybe [] hsq_explicit tyVars), maybe (return ()) exportContext ctx
@@ -164,6 +170,9 @@ exportConstructor (L l (ConDeclH98 { con_name = name, con_qvars = tyVars, con_cx
 exportGADTConstructor :: HsName n => Exporter (Located (ConDecl n))
 exportGADTConstructor (L l (ConDeclGADT { con_names = names, con_type = hsib_body -> typ }))
   = do let (vars, ctx, t) = getTypeVarsAndCtx typ
+       -- forM_ names $ \n ->
+       --   case hsGetNames n of tn:_ -> writeFields tn (concatMap (concatMap hsGetNames . cd_fld_names . unLoc) flds)
+       --                        _    -> return ()
        export GADTConstructor l [ defining (mapM_ exportName names)
                                 , mapM_ exportTypeVar vars
                                 , exportContext ctx
