@@ -10,6 +10,7 @@ import Database.Selda.SQLite
 import Data.Text (pack, unpack, cons)
 import SrcLoc
 import Data.List
+import Data.Char
 import Data.Maybe
 import FastString
 import System.IO hiding (hGetContents)
@@ -32,12 +33,15 @@ renameDefinition newName srcSpan = do
     return ( n ! name_uniq :*: n ! name_str :*: n ! name_namespace )
 
   case selectedName of
-    [uniq :*: original :*: namespace] -> do
-      associatedNames <- query $ do
-        bnd <- select implicitBinds
-        restrict $ (bnd ! imp_bind_lhs) .== text uniq
-        return (bnd ! imp_bind_rhs)
-      renameUnique newName original (uniq : associatedNames) namespace
+    [uniq :*: original :*: namespace] ->
+      case newNameProblems (unpack original) newName (unpack namespace) of
+        Nothing -> do
+          associatedNames <- query $ do
+            bnd <- select implicitBinds
+            restrict $ (bnd ! imp_bind_lhs) .== text uniq
+            return (bnd ! imp_bind_rhs)
+          renameUnique newName original (uniq : associatedNames) namespace
+        Just err -> return $ Left $ "The new name '" ++ newName ++ "' is not correct: " ++ err
     _ -> return $ Left $ "No name found at selection: " ++ show srcSpan
 
 renameUnique :: String -> Text -> [Text] -> Text -> SeldaT IO (Either String [(RealSrcSpan, String)])
@@ -179,3 +183,40 @@ updateStart f sp = mkRealSrcSpan (f (realSrcSpanStart sp)) (realSrcSpanEnd sp)
 -- | Update the end of the src span
 updateEnd :: (RealSrcLoc -> RealSrcLoc) -> RealSrcSpan -> RealSrcSpan
 updateEnd f sp = mkRealSrcSpan (realSrcSpanStart sp) (f (realSrcSpanEnd sp))
+
+-- | Check if a given name is valid for a given kind of definition
+newNameProblems :: String -> String -> String -> Maybe String
+newNameProblems _ "" _ = Just "An empty name is not valid"
+newNameProblems _ str _ | str `elem` reservedNames = Just $ "'" ++ str ++ "' is a reserved name"
+  where -- TODO: names reserved by extensions
+        reservedNames = [ "case", "class", "data", "default", "deriving", "do", "else", "if", "import", "in", "infix"
+                        , "infixl", "infixr", "instance", "let", "module", "newtype", "of", "then", "type", "where", "_"
+                        , "..", ":", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>", "[]"
+                        ]
+-- Operators that are data constructors (must start with ':')
+newNameProblems orig newName "data constructor" | all isOperatorChar orig
+  = case newName of (':' : nameRest) | all isOperatorChar nameRest -> Nothing
+                    _ -> Just "The name must start with ':' and only contain operator characters."
+-- Type families and synonyms that are operators (can start with ':')
+newNameProblems orig newName "type constructor or class" | all isOperatorChar orig
+  = if all isOperatorChar newName then Nothing
+      else Just "The name must only contain operator characters."
+-- Normal value operators (cannot start with ':')
+newNameProblems orig newName "variable" | all isOperatorChar orig
+  = case newName of (start : nameRest) | isOperatorChar start && start /= ':' && all isOperatorChar nameRest -> Nothing
+                    _ -> Just "The name must start with ':' and only contain operator characters."
+-- Data and type constructors (start with uppercase)
+newNameProblems orig newName namespace | namespace `elem` ["data constructor", "type constructor or class"]
+  = case newName of (start : nameRest) | isUpper start && isLetter start && all isIdChar nameRest -> Nothing
+                    _ -> Just "The name must start with an uppercase letter, and only contain letters, digits, apostrhophe or underscore"
+-- Variables and type variables (start with lowercase)
+newNameProblems orig newName namespace | namespace `elem` ["variable", "type variable"]
+  = case newName of (start : nameRest) | ((isLower start && isLetter start) || start == '\'' || start == '_') && all isIdChar nameRest -> Nothing
+                    _ -> Just "The name of a value must start with lowercase, and only contain letters, digits, apostrhophe or underscore"
+newNameProblems orig newName namespace = error $ "newNameProblems: " ++ orig ++ " " ++ newName ++ " " ++ namespace
+
+isIdChar :: Char -> Bool
+isIdChar c = isLetter c || isDigit c || c == '\'' || c == '_'
+
+isOperatorChar :: Char -> Bool
+isOperatorChar c = isPunctuation c || isSymbol c

@@ -26,7 +26,7 @@ exportBinding (L l (FunBind { fun_id = id
                             , fun_matches = MG { mg_alts = L _ [L _ (GHC.Match { m_ctxt = FunRhs { mc_strictness = SrcStrict }
                                                                                , m_pats = []
                                                                                , m_grhss = GRHSs [rhss] locals })]} }))
-  = export SimpleB l [ export BangP (getLoc id) [ export VariableP (getLoc id) [ exportName id ] ]
+  = export SimpleB l [ export BangP (getLoc id) [ export VariableP (getLoc id) [ defining (exportName id) ] ]
                      , exportRhss rhss
                      , exportLocalBinds locals
                      ]
@@ -34,7 +34,7 @@ exportBinding (L l (FunBind { fun_id = id
 exportBinding (L l (FunBind { fun_id = id
                             , fun_matches = MG { mg_alts = L _ [L _ (GHC.Match { m_pats = []
                                                                                , m_grhss = GRHSs [rhss] locals })]} }))
-  = export SimpleB l [ export VariableP (getLoc id) [ exportName id ]
+  = export SimpleB l [ export VariableP (getLoc id) [ defining (exportName id) ]
                      , exportRhss rhss
                      , exportLocalBinds locals ]
 exportBinding (L l (FunBind name (MG (L _ matches) _ _ _) _ _ _))
@@ -73,9 +73,9 @@ exportRhsGuard (L l stmt) = exportError "rhs guard" stmt
 
 exportLocalBinds :: HsName n => Exporter (LHsLocalBinds n)
 exportLocalBinds (L l (HsValBinds (ValBindsIn binds sigs)))
-  = export LocalBindings l [ mapM_ exportBinding (bagToList binds) >> mapM_ exportLocalSig sigs ]
+  = addToScope l $ export LocalBindings l [ mapM_ exportBinding (bagToList binds) >> mapM_ exportLocalSig sigs ]
 exportLocalBinds (L l (HsValBinds (ValBindsOut binds sigs)))
-  = export LocalBindings l [ mapM_ exportBinding (concatMap (bagToList . snd) binds) >> mapM_ exportLocalSig sigs ]
+  = addToScope l $ export LocalBindings l [ mapM_ exportBinding (concatMap (bagToList . snd) binds) >> mapM_ exportLocalSig sigs ]
 exportLocalBinds bind@(L l (HsIPBinds (IPBinds binds _))) = mapM_ exportIPBind binds
 exportLocalBinds (L l EmptyLocalBinds) = return ()
 
