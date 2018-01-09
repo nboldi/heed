@@ -11,6 +11,7 @@ import Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Schema as Schema
 
+import Control.Monad.IO.Class
 import Data.Data
 import HsBinds
 import Bag
@@ -49,7 +50,7 @@ exportBinding (L l b@(AbsBindsSig {})) = exportBinding (abs_sig_bind b)
 exportBinding (L l bind) = exportError "binding" bind --  Pattern synonym bindings should be recognized on the declaration level
 
 exportMatch :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
-exportMatch (L l (GHC.Match id pats _ (GRHSs rhss (L _ locBinds)))) = do
+exportMatch (L l (GHC.Match id pats _ (GRHSs rhss locBinds))) = do
   node <- writeInsert Match l
   defining $ goInto node 1
     $ case id of FunRhs name GHC.Prefix _ -> exportNameOrRdrName @n exportName name
@@ -58,6 +59,7 @@ exportMatch (L l (GHC.Match id pats _ (GRHSs rhss (L _ locBinds)))) = do
   addToScope (combineLocated pats) $ do
     goInto node 2 $ mapM_ exportPattern pats
     goInto node 3 $ mapM_ exportRhss rhss
+    goInto node 4 $ exportLocalBinds locBinds
 
 exportRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
 exportRhss (L l (GRHS [] body)) = export UnguardedRhs l [ exportExpression body ]
@@ -76,7 +78,7 @@ exportLocalBinds (L l (HsValBinds (ValBindsIn binds sigs)))
   = addToScope l $ export LocalBindings l [ mapM_ exportBinding (bagToList binds) >> mapM_ exportLocalSig sigs ]
 exportLocalBinds (L l (HsValBinds (ValBindsOut binds sigs)))
   = addToScope l $ export LocalBindings l [ mapM_ exportBinding (concatMap (bagToList . snd) binds) >> mapM_ exportLocalSig sigs ]
-exportLocalBinds bind@(L l (HsIPBinds (IPBinds binds _))) = mapM_ exportIPBind binds
+exportLocalBinds bind@(L l (HsIPBinds (IPBinds binds _))) = addToScope l $ mapM_ exportIPBind binds
 exportLocalBinds (L l EmptyLocalBinds) = return ()
 
 exportLocalSig :: HsName n => Exporter (Located (Sig n))

@@ -31,7 +31,7 @@ import Control.Monad.IO.Class
 
 exportDeclarationGroup :: HsName n => Exporter (HsGroup n)
 exportDeclarationGroup g@(HsGroup vals splices tycls derivs fixities defaults foreigns warns anns rules vects _)
-  = addToScope (combineLocated allDecls) $ mapM_ exportDeclaration allDecls
+  = mapM_ exportDeclaration allDecls
   where (sigs, bagToList -> binds) = getBindsAndSigs vals
         allDecls = (map (fmap GHC.SpliceD) splices)
                       ++ (map (fmap ValD) binds)

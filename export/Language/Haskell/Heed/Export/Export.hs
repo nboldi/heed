@@ -13,11 +13,18 @@ import Database.Selda
 import Database.Selda.SQLite
 import Data.Maybe
 import qualified Data.Map as Map
-import Data.Text (pack)
+import Data.Text (pack, unpack)
 
+import Avail
+import HscTypes
 import GHC
+import Outputable hiding (text)
+import FastString
 import GHC.Paths ( libdir )
 import DynFlags
+import UniqDFM
+import Module
+import SrcLoc
 
 import Core
 import Language.Haskell.Heed.Export.Modules
@@ -44,11 +51,24 @@ exportSrcFile root modName doExport =
       when doExport $ do
         cleanDatabase
         transaction $ do
+          do sess <- lift getSession
+             eps <- liftIO $ hscEPS sess
+             let pit = eps_PIT eps
+                 hpt = hsc_HPT sess
+             mapM_ (\m -> writeImportedNames (mi_module $ hm_iface m) (concatMap availNames $ md_exports $ hm_details m)) (eltsUDFM hpt)
+             mapM_ (\m -> writeImportedNames (mi_module m) (concatMap availNames $ mi_exports m)) (moduleEnvElts pit)
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
-          runWriterT $ flip runReaderT (initExportState ParsedStage modSum emptyStore) $ exportModule $ parsedSource p
-          store <- execWriterT $ case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage modSum emptyStore) $ exportRnModule rs
-          runWriterT $ flip runReaderT (initExportState TypedStage modSum store) $ exportTcModule $ typecheckedSource t
+          eof <- query $ do tok <- select tokens
+                            restrict $ tok ! token_str .== text (pack (show AnnEofPos))
+                            return tok
+          let moduleLoc = case eof of [ file :*: _ :*: _ :*: er :*: ec :*: _ ]
+                                        -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
+                                                     (mkSrcLoc (mkFastString (unpack file)) er ec)
+                                      _ -> noSrcSpan
+          runWriterT $ flip runReaderT (initExportState ParsedStage modSum emptyStore moduleLoc) $ exportModule $ parsedSource p
+          store <- execWriterT $ case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage modSum emptyStore moduleLoc) $ exportRnModule rs
+          runWriterT $ flip runReaderT (initExportState TypedStage modSum store moduleLoc) $ exportTcModule $ typecheckedSource t
           return ()
 
 cleanDatabase :: SeldaT Ghc ()
@@ -85,3 +105,6 @@ cleanDatabase = withForeignCheckTurnedOff $ do
 
    tryDropTable typeCtors
    createTable typeCtors
+
+   tryDropTable moduleImports
+   createTable moduleImports

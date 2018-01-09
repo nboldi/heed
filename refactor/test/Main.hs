@@ -79,13 +79,13 @@ renameDefinitionTests =
   , ("Refactor.RenameDefinition.MergeFields_RenameY", "3:34-3:35", "x")
   , ("Refactor.RenameDefinition.PatternSynonym", "6:9", "ArrowAppl")
   , ("Refactor.RenameDefinition.PatternSynonymTypeSig", "6:9", "ArrowAppl")
-  , ("Refactor.RenameDefinition.QualImport", "5:1", "intercalate")
+  -- , ("Refactor.RenameDefinition.QualImport", "5:1", "intercalate")
   ]
 
 wrongRenameDefinitionTests =
-  [ -- ("Refactor.RenameDefinition.LibraryFunction", "4:5-4:7", "identity")
-    ("Refactor.RenameDefinition.NameClash", "5:9-5:10", "h")
-  -- , ("Refactor.RenameDefinition.NameClash", "3:1-3:2", "map")
+  [ ("Refactor.RenameDefinition.LibraryFunction", "4:5-4:7", "identity")
+  , ("Refactor.RenameDefinition.NameClash", "5:9-5:10", "h")
+  , ("Refactor.RenameDefinition.NameClash", "3:1-3:2", "map")
   , ("Refactor.RenameDefinition.WrongName", "4:1-4:2", "F")
   , ("Refactor.RenameDefinition.WrongName", "4:1-4:2", "++")
   , ("Refactor.RenameDefinition.WrongName", "7:6-7:7", "x")
@@ -95,8 +95,7 @@ wrongRenameDefinitionTests =
   , ("Refactor.RenameDefinition.WrongName", "9:19-9:19", ".+++.")
   , ("Refactor.RenameDefinition.WrongName", "11:3-11:3", ":+++:")
   -- , ("Refactor.RenameDefinition.IllegalQualRename", "4:30-4:34", "Bl")
-  -- , ("Refactor.RenameDefinition.CrossRename", "4:1-4:2", "g")
---  ,
+  , ("Refactor.RenameDefinition.CrossRename", "4:1-4:2", "g")
   , ("Refactor.RenameDefinition.MergeFields", "5:16-5:18", "y2") -- fld in the same ctor
   , ("Refactor.RenameDefinition.MergeFields", "5:30-5:32", "x2") -- fld in the same ctor
   , ("Refactor.RenameDefinition.MergeFields", "5:16-5:18", "y") -- fld belongs to other type

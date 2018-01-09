@@ -56,10 +56,10 @@ renameUnique newName original uniqs namespace = do
     restrict $ n ! name_uniq `isIn` map text uniqs
                  .&& n ! name_namespace .== text namespace
     return ( unqualNode ! node_file :*: unqualNode ! node_start_row :*: unqualNode ! node_start_col
-               :*: unqualNode ! node_end_row :*: unqualNode ! node_end_col )
+               :*: unqualNode ! node_end_row :*: unqualNode ! node_end_col :*: n ! name_defining )
 
   align <- query $ distinct $ do
-    let inRow node (fl :*: _ :*: _ :*: er :*: ec)
+    let inRow node (fl :*: _ :*: _ :*: er :*: ec :*: _)
           = node ! node_file .== text fl .&& node ! node_start_row .== int er .&& node ! node_start_col .> int ec
               .&& node ! node_end_row .> node ! node_start_row
     node <- select nodes
@@ -91,9 +91,15 @@ renameUnique newName original uniqs namespace = do
     sco <- select scopes
     snm <- select names
     snmo <- select names
+    mi <- select moduleImports
+
     restrict $ just (node ! node_id) .== occ ! name_node
-    restrict $ snm ! name_defining .&& sc ! scope_id .== snm ! name_scope -- snm is defined in sc
-    restrict $ snmo ! name_defining .&& sco ! scope_id .== snmo ! name_scope -- snmo is defined in sco
+    restrict $ snm ! name_defining
+                 .&& ( just (sc ! scope_id) .== snm ! name_scope -- snm is defined in sc
+                         .|| mi ! mi_scope_id .== sc ! scope_id -- snm is imported
+                               .&& just (mi ! mi_module_id) .== snm ! name_module )
+    restrict $ snmo ! name_defining
+                 .&& just (sco ! scope_id) .== snmo ! name_scope -- snmo is defined in the current module
 
     let nameInScope occ sc = do
           restrict $ (sc ! scope_start_row .< node ! node_start_row
@@ -116,6 +122,7 @@ renameUnique newName original uniqs namespace = do
                  .&& snmo ! name_uniq .== occ ! name_uniq
     -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming (and the renamed id's definition is not closer to usage)
                 .|| occ ! name_uniq `isIn` map text uniqs
+                     .&& not_ (occ ! name_defining)
                      .&& snm ! name_str .== text (pack newName)
                      .&& snmo ! name_uniq `isIn` map text uniqs
                      .&& snm ! name_namespace .== text namespace
@@ -138,9 +145,11 @@ renameUnique newName original uniqs namespace = do
                  .&& nCtor ! cf_field .== nType ! type_name
     return (occCtor ! cf_field :*: occType ! type_desc :*: nType ! type_desc )
   let mergeable = catMaybes $ map (\( name :*: t1 :*: t2 ) -> if read (unpack t1) `typeRepEq` read (unpack t2) then Just name else Nothing) mergeableCandidate
-
-  case filter (\(r :*: c :*: n1 :*: n2) -> n1 `notElem` mergeable && n2 `notElem` mergeable) clash of
-    [] -> do
+      isMergeable (r :*: c :*: n1 :*: n2) = n1 `notElem` mergeable && n2 `notElem` mergeable
+      isDefining ( _ :*: _ :*: _ :*: _ :*: _ :*: d ) = d
+  case (or (map isDefining renameRanges) || unpack namespace == "type variable", filter isMergeable clash) of
+    (False, _) -> return $ Left $ "Definition of name is not found."
+    (True, []) -> do
       let nameLengthChange = length newName - length (unpack original)
           nameExtend = if nameLengthChange > 0 then nameLengthChange else 0
           nameShorten = if nameLengthChange < 0 then -nameLengthChange else 0
@@ -148,9 +157,9 @@ renameUnique newName original uniqs namespace = do
           alignDistinct = nub $ sortOn second align
           realignChanges = concatMap (\(fl :*: sr :*: er) -> map ((, replicate nameExtend ' ') . updateEnd (updateCol (+ nameShorten)) . alignToSpan fl) [sr..er]) alignDistinct
       return $ Right (nameRewriteChanges ++ realignChanges)
-    clashes -> return $ Left $ "Name clashes at: " ++ show clashes
+    (True, clashes) -> return $ Left $ "Name clashes at: " ++ show clashes
   where
-    resToSpan (file :*: sr :*: sc :*: er :*: ec)
+    resToSpan (file :*: sr :*: sc :*: er :*: ec :*: _)
       = mkRealSrcSpan (mkRealSrcLoc (mkFastString (unpack file)) sr sc) (mkRealSrcLoc (mkFastString (unpack file)) er ec)
     alignToSpan file sr = realSrcLocSpan (mkRealSrcLoc (mkFastString (unpack file)) sr 1)
 

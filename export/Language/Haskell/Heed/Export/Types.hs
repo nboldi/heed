@@ -21,7 +21,7 @@ import PlaceHolder(OutputableBndrId(..))
 exportType :: HsName n => Exporter (Located (HsType n))
 exportType (L l (HsForAllTy [] typ)) = exportType typ
 exportType (L l (HsForAllTy bndrs typ))
-  = export ForallT l [ mapM_ exportTypeVar bndrs, exportType typ ]
+  = export ForallT l [ defining (mapM_ exportTypeVar bndrs), exportType typ ]
 exportType (L l (HsQualTy (L _ []) typ)) = exportType typ
 exportType (L l (HsQualTy ctx typ)) = export ContextT l [ exportContext ctx, exportType typ ]
 exportType (L l (HsTyVar _ name)) = export VariableT l [ exportName name ]

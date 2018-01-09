@@ -7,6 +7,7 @@ import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Schema as Schema
 
 import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.IO.Class
 import Data.Data
 import Bag
@@ -25,11 +26,14 @@ exportTcModule binds
 
 exportRnModule :: HsName n => Exporter (HsGroup n, [LImportDecl n], Maybe [LIE n], Maybe LHsDocString)
 exportRnModule (gr,imports,exps,_)
-  = export Schema.Module noSrcSpan [ return ()
-                                   , maybe (return ()) (mapM_ exportExportSpec) exps
-                                   , mapM_ exportImportDecl imports
-                                   , exportDeclarationGroup gr
-                                   ]
+  = do rn <- asks moduleRange
+       addToScope rn $ do
+         writeModImports imports
+         export Schema.Module noSrcSpan [ return ()
+                                        , maybe (return ()) (mapM_ exportExportSpec) exps
+                                        , mapM_ exportImportDecl imports
+                                        , exportDeclarationGroup gr
+                                        ]
 
 exportModule :: HsName n => Exporter (Located (HsModule n))
 exportModule (L l (HsModule name exports imports decls deprec _))

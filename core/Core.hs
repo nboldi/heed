@@ -15,6 +15,7 @@ import Data.Maybe
 import Data.Text (pack)
 
 import Database.Selda
+
 import Control.Monad.Catch
 import GHC (gcatch)
 import GhcMonad
@@ -48,7 +49,6 @@ withForeignCheckTurnedOff act = do
    (resCode, _) <- liftIO $ Backend.runStmt backend (pack "PRAGMA foreign_keys = ON") []
    when (resCode /= 0) (throwM $ Backend.SqlError "withForeignCheckTurnedOff: Switching foreign keys back on was not successful.")
    return res
-
 
 -- * Syntax
 
@@ -90,39 +90,30 @@ attributes = table "attributes" $ required "container"
     :*: integer_attribute
     :*: fractional_attribute ) = selectors attributes
 
-type Module = RowID :*: Text :*: Text :*: Text
+type Module = RowID :*: Text :*: Text :*: Maybe Text
 
 modules :: Table Module
 modules = table "modules" $ autoPrimary "module_id"
                               :*: required "module_name"
                               :*: required "package_name"
-                              :*: required "module_source"
+                              :*: optional "module_source"
 (module_id :*: module_name :*: module_package :*: module_source) = selectors modules
 
 -- * Semantic information
 
-type Name = Maybe RowID :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Int :*: Maybe Int :*: Maybe Int
-              :*: Text :*: Text :*: Text :*: Bool
+type Name = Maybe RowID :*: Maybe RowID :*: Maybe RowID :*: Text :*: Text :*: Text :*: Bool
 
 names :: Table Name
 names = table "names" $ optional "name_node" -- `fk` (nodes, node_id)
-                          :*: required "name_scope" `fk` (scopes, scope_id) -- the scope in which the name is bound
-                          :*: optional "def_file"
-                          :*: optional "def_start_row"
-                          :*: optional "def_start_col"
-                          :*: optional "def_end_row"
-                          :*: optional "def_end_col"
+                          :*: optional "name_scope" -- `fk` (scopes, scope_id) -- the scope in which the name is bound
+                          :*: optional "name_module" -- `fk` (modules, module_id) -- the scope in which the name is bound
                           :*: required "name_namespace"
                           :*: required "name_str"
                           :*: required "name_uniq"
                           :*: required "name_defining"
 ( name_node
     :*: name_scope
-    :*: def_file
-    :*: def_start_row
-    :*: def_start_col
-    :*: def_end_row
-    :*: def_end_col
+    :*: name_module
     :*: name_namespace
     :*: name_str
     :*: name_uniq
@@ -170,6 +161,21 @@ scopes = table "scopes" $ autoPrimary "scope_id"
     :*: scope_end_row
     :*: scope_end_col ) = selectors scopes
 
+type ModuleImport = RowID :*: RowID
+
+moduleImports :: Table ModuleImport
+moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, scope_id)
+                                          :*: required "mi_module_id" `fk` (modules, module_id)
+( mi_scope_id :*: mi_module_id ) = selectors moduleImports
+
+-- type ModuleImportHiding = RowID :*: RowID
+--
+-- moduleImports :: Table ModuleImport
+-- moduleImports = table "module_import" $ required "mi_scope_id" `fk` (scopes, scope_id)
+--                                           :*: required "mi_module_id" `fk` (modules, module_id)
+-- ( mi_scope_id :*: sc_scope_id ) = selectors moduleImports
+
+
 -- * Lexical information
 
 type Token = Text :*: Int :*: Int :*: Int :*: Int :*: Text
@@ -180,7 +186,7 @@ tokens = table "tokens" $ required "file"
                             :*: required "start_col"
                             :*: required "end_row"
                             :*: required "end_col"
-                            :*: required "token"
+                            :*: required "token_str"
 ( token_file
     :*: token_start_row
     :*: token_start_col

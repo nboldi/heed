@@ -19,6 +19,7 @@ import Outputable (Outputable(..), OutputableBndr)
 import Bag
 import HscTypes
 import Type
+import BasicTypes
 
 import System.Directory
 import Control.Exception
@@ -40,6 +41,7 @@ data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , isDefining :: Bool
                                , scope :: Maybe RowID
                                , ambiguousNames :: [(SrcSpan, RowID)]
+                               , moduleRange :: SrcSpan
                                }
 
 data ExportStore = ExportStore [(SrcSpan, RowID)]
@@ -56,8 +58,8 @@ data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 liftSelda :: SeldaT Ghc a -> TrfType a
 liftSelda = lift . lift
 
-initExportState :: ExportStage -> ModSummary -> ExportStore -> ExportState
-initExportState stage mod (ExportStore amb) = ExportState Nothing stage mod False Nothing amb
+initExportState :: ExportStage -> ModSummary -> ExportStore -> SrcSpan -> ExportState
+initExportState stage mod (ExportStore amb) loc = ExportState Nothing stage mod False Nothing amb loc
 
 type TrfType = ReaderT ExportState (WriterT ExportStore (SeldaT Ghc))
 
@@ -140,6 +142,12 @@ lookupNameNode = prepared $ \file start_row start_col -> do
                     .|| n ! node_type .== int (typeId (undefined :: Schema.Operator)))
   return (n ! node_id)
 
+lookupImportedModule :: Text -> Text -> SeldaT Ghc [RowID]
+lookupImportedModule = prepared $ \mod pkg -> do
+  (id :*: name :*: package :*: _) <- select modules
+  restrict $ mod .== name .&& pkg .== package
+  return id
+
 writeModule :: TrfType ()
 writeModule = do
   ms <- asks compiledModule
@@ -147,7 +155,7 @@ writeModule = do
   sourcePath <- liftIO $ makeAbsolute (msHsFilePath ms)
   liftSelda $ insert_ modules [ def :*: pack (moduleNameString $ moduleName mod)
                                     :*: pack (show $ moduleUnitId mod)
-                                    :*: pack sourcePath ]
+                                    :*: Just (pack sourcePath) ]
 
 writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
@@ -161,19 +169,33 @@ doWriteName sp name scope = do
   cm <- asks (ms_mod . compiledModule)
   defining <- asks isDefining
   let (file, start_row, start_col, _, _) = spanData sp
-  [nodeId] <- lift $ lift $ lookupNameNode (pack file) start_row start_col
-
-  let (d_file, d_start_row, d_start_col, d_end_row, d_end_col)
-        = case nameSrcSpan name of RealSrcSpan rsp -> ( Just (unpackFS (srcSpanFile rsp)), Just (srcSpanStartLine rsp)
-                                                      , Just (srcSpanStartCol rsp), Just (srcSpanEndLine rsp)
-                                                      , Just (srcSpanEndCol rsp) )
-                                   _               -> (Nothing, Nothing, Nothing, Nothing, Nothing)
-
-      uniq = createNameUnique cm name
+  [nodeId] <- liftSelda $ lookupNameNode (pack file) start_row start_col
+  let uniq = createNameUnique cm name
       namespace = occNameSpace $ nameOccName name
       nameStr = occNameString $ nameOccName name
-  liftSelda $ insert_ names [ Just nodeId :*: scope :*: fmap pack d_file :*: d_start_row :*: d_start_col :*: d_end_row :*: d_end_col
+  liftSelda $ insert_ names [ Just nodeId :*: Just scope :*: Nothing
                                :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
+
+writeModImports :: [LImportDecl n] -> TrfType ()
+writeModImports imports = do
+  Just sc <- asks scope
+  mods <- liftSelda $ liftGhc $ mapM (\imp -> findModule (unLoc $ ideclName imp) (fmap sl_fs $ ideclPkgQual imp)) (map unLoc imports)
+  modIds <- liftSelda $ concat <$> mapM (\m -> lookupImportedModule (pack $ moduleNameString $ moduleName m) (pack $ show $ moduleUnitId m)) mods
+  liftSelda $ insert_ moduleImports (map (sc :*:) modIds)
+
+writeImportedNames :: GHC.Module -> [GHC.Name] -> SeldaT Ghc ()
+writeImportedNames mod importedNames = do
+  modId <- lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
+  when (null modId) $ do
+    id <- insertWithPK modules [ def :*: pack (moduleNameString $ moduleName mod)
+                                     :*: pack (show $ moduleUnitId mod)
+                                     :*: Nothing ]
+    insert_ names (map (createNameImport id) importedNames)
+  where createNameImport modId name = Nothing :*: Nothing :*: Just modId
+                               :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: True
+          where uniq = createNameUnique mod name
+                namespace = occNameSpace $ nameOccName name
+                nameStr = occNameString $ nameOccName name
 
 writeType :: SrcSpan -> Id -> TrfType ()
 writeType sp id = do
