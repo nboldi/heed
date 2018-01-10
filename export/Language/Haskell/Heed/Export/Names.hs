@@ -67,7 +67,7 @@ instance HsName GHC.Name where
 instance HsName Id where
   exportName (L l n) = do when (isRecordSelector n) $ do
                             scopeId <- asks (lookup l . ambiguousNames)
-                            maybe (return ()) (doWriteName l (idName n)) scopeId
+                            maybe (return ()) (doWriteName l (idName n) . Just) scopeId
                           writeType l n
   exportOperator (L l n) = do when (isRecordSelector n) $ writeName l (idName n)
                               writeType l n

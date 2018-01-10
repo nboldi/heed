@@ -66,9 +66,11 @@ exportSrcFile root modName doExport =
                                         -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
                                                      (mkSrcLoc (mkFastString (unpack file)) er ec)
                                       _ -> noSrcSpan
-          runWriterT $ flip runReaderT (initExportState ParsedStage modSum emptyStore moduleLoc) $ exportModule $ parsedSource p
-          store <- execWriterT $ case renamedSource t of Just rs -> flip runReaderT (initExportState RenameStage modSum emptyStore moduleLoc) $ exportRnModule rs
-          runWriterT $ flip runReaderT (initExportState TypedStage modSum store moduleLoc) $ exportTcModule $ typecheckedSource t
+          let gblEnv = fst $ tm_internals_ t
+              exportSt = initExportState modSum moduleLoc
+          runWriterT $ flip runReaderT (exportSt emptyStore ParsedStage (Just gblEnv)) $ exportModule $ parsedSource p
+          store <- execWriterT $ case renamedSource t of Just rs -> flip runReaderT (exportSt emptyStore RenameStage Nothing) $ exportRnModule rs
+          runWriterT $ flip runReaderT (exportSt store TypedStage Nothing) $ exportTcModule $ typecheckedSource t
           return ()
 
 cleanDatabase :: SeldaT Ghc ()

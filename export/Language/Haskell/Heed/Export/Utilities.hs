@@ -11,7 +11,7 @@ module Language.Haskell.Heed.Export.Utilities where
 
 import GHC
 import FastString
-import Outputable (showSDocUnsafe, ppr)
+import Outputable hiding (text, int)
 import Name
 import Id
 import SrcLoc
@@ -20,6 +20,13 @@ import Bag
 import HscTypes
 import Type
 import BasicTypes
+import TcRnTypes
+import RnEnv
+import RnExpr
+import ErrUtils
+import TcRnMonad
+import DynFlags
+import Language.Haskell.TH.LanguageExtensions
 
 import System.Directory
 import Control.Exception
@@ -37,11 +44,13 @@ import qualified Language.Haskell.Heed.Schema as Schema
 
 data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , exportStage :: ExportStage
+                               , nameExportForced :: Bool
                                , compiledModule :: ModSummary
                                , isDefining :: Bool
                                , scope :: Maybe RowID
                                , ambiguousNames :: [(SrcSpan, RowID)]
                                , moduleRange :: SrcSpan
+                               , globalEnv :: Maybe TcGblEnv
                                }
 
 data ExportStore = ExportStore [(SrcSpan, RowID)]
@@ -58,8 +67,8 @@ data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 liftSelda :: SeldaT Ghc a -> TrfType a
 liftSelda = lift . lift
 
-initExportState :: ExportStage -> ModSummary -> ExportStore -> SrcSpan -> ExportState
-initExportState stage mod (ExportStore amb) loc = ExportState Nothing stage mod False Nothing amb loc
+initExportState :: ModSummary -> SrcSpan -> ExportStore -> ExportStage -> Maybe TcGblEnv -> ExportState
+initExportState mod loc (ExportStore amb) stage gblEnv = ExportState Nothing stage False mod False Nothing amb loc gblEnv
 
 type TrfType = ReaderT ExportState (WriterT ExportStore (SeldaT Ghc))
 
@@ -70,18 +79,26 @@ class IsRdrName n where
 
 class (OutputableBndr n, OutputableBndr (NameOrRdrName n), HsHasName (FieldOcc n)) => CompilationPhase n where
   getBindsAndSigs :: HsValBinds n -> ([LSig n], LHsBinds n)
+  renameSplice :: Located (HsSplice n) -> TrfType (Maybe (Located (HsSplice GHC.Name)))
+  renameBracket :: Located (HsBracket n) -> TrfType (Maybe (Located (HsBracket GHC.Name)))
 
 instance CompilationPhase RdrName where
   getBindsAndSigs (ValBindsIn binds sigs) = (sigs, binds)
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsOut in parsed source"
+  renameSplice = fmap Just . rdrSplice
+  renameBracket = fmap Just . rdrBracket
 
 instance CompilationPhase GHC.Name where
   getBindsAndSigs (ValBindsOut bindGroups sigs) = (sigs, unionManyBags (map snd bindGroups))
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
+  renameSplice _ = return Nothing
+  renameBracket _ = return Nothing
 
 instance CompilationPhase Id where
   getBindsAndSigs (ValBindsOut bindGroups _) = ([], unionManyBags (map snd bindGroups))
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
+  renameSplice _ = return Nothing
+  renameBracket _ = return Nothing
 
 class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, CompilationPhase n)
       => HsName n where
@@ -97,6 +114,9 @@ goInto Nothing _ = id
 
 defining :: TrfType a -> TrfType a
 defining = local $ \s -> s { isDefining = True }
+
+forceNameExport :: TrfType a -> TrfType a
+forceNameExport = local $ \s -> s { nameExportForced = True }
 
 writeInsert :: Schema s => s -> SrcSpan -> TrfType (Maybe RowID)
 writeInsert ctor loc = do
@@ -160,11 +180,10 @@ writeModule = do
 writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
   sc <- asks scope
-  case sc of
-    Just scope -> doWriteName sp name scope
-    Nothing -> return ()
+  force <- asks nameExportForced
+  when (force || isJust sc) $ doWriteName sp name sc
 
-doWriteName :: SrcSpan -> GHC.Name -> RowID -> TrfType ()
+doWriteName :: SrcSpan -> GHC.Name -> Maybe RowID -> TrfType ()
 doWriteName sp name scope = do
   cm <- asks (ms_mod . compiledModule)
   defining <- asks isDefining
@@ -175,7 +194,7 @@ doWriteName sp name scope = do
       nameStr = occNameString $ nameOccName name
       nsRecord = showSDocUnsafe (pprNameSpace namespace)
   when defining
-    $ liftSelda $ insert_ definitions [ Nothing :*: Just scope :*: pack nsRecord :*: pack nameStr :*: pack uniq ]
+    $ liftSelda $ insert_ definitions [ Nothing :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq ]
   liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining ]
 
 writeModImports :: [LImportDecl n] -> TrfType ()
@@ -343,14 +362,44 @@ instance HsHasName (FieldOcc GHC.Name) where
 instance HsHasName (FieldOcc Id) where
   hsGetNames (FieldOcc _ n) = [idName n]
 
-instance HsHasName e => HsHasName [e] where
-  hsGetNames es = concatMap hsGetNames es
-
 instance HsHasName e => HsHasName (Located e) where
   hsGetNames (L _ e) = hsGetNames e
 
-instance HsHasName n => HsHasName (Pat n) where
-  hsGetNames (VarPat id) = hsGetNames id
+-- * Renaming splices
 
-instance HsHasName n => HsHasName (HsBind n) where
-  hsGetNames (FunBind {fun_id = lname}) = hsGetNames lname
+rdrSplice :: Located (HsSplice RdrName) -> TrfType (Located (HsSplice GHC.Name))
+rdrSplice = runRenamer tcHsSplice'
+  where
+    tcHsSplice' (HsTypedSplice dec id e)
+      = HsTypedSplice dec (mkUnboundNameRdr id) <$> (fst <$> rnLExpr e)
+    tcHsSplice' (HsUntypedSplice dec id e)
+      = HsUntypedSplice dec (mkUnboundNameRdr id) <$> (fst <$> rnLExpr e)
+    tcHsSplice' (HsQuasiQuote id1 id2 sp fs)
+      = pure $ HsQuasiQuote (mkUnboundNameRdr id1) (mkUnboundNameRdr id2) sp fs
+
+rdrBracket :: Located (HsBracket RdrName) -> TrfType (Located (HsBracket GHC.Name))
+rdrBracket = runRenamer tcHsBracket
+  where
+    tcHsBracket (ExpBr expr) = ExpBr . fst <$> rnLExpr expr
+    -- tcHsBracket (PatBr pat) = PatBr . fst <$> rnBindPat pat
+    -- tcHsBracket (DecBrL [LHsDecl id])
+    -- tcHsBracket (DecBrG (HsGroup id))
+    -- tcHsBracket (TypBr (LHsType id))
+    tcHsBracket (VarBr b id) = VarBr b <$> lookupOccRn id
+    -- tcHsBracket (TExpBr (LHsExpr id))
+
+runRenamer :: (a RdrName -> RnM (a GHC.Name)) -> Located (a RdrName) -> TrfType (Located (a GHC.Name))
+runRenamer rename (L rng rdr) = do
+    env <- liftSelda $ liftGhc getSession
+    Just gbl <- asks globalEnv
+    tcSpl <- liftIO $ runTcInteractive env { hsc_dflags = xopt_set (hsc_dflags env) TemplateHaskellQuotes }
+      $ updGblEnv (const gbl)
+      $ (L rng <$> rename rdr)
+    let typecheckErrors = showSDocUnsafe (vcat (pprErrMsgBagWithLoc (fst (fst tcSpl)))
+                                            <+> vcat (pprErrMsgBagWithLoc (snd (fst tcSpl))))
+    -- This function refers the ghc environment, we must evaluate the result or the reference
+    -- may be kept preventing garbage collection.
+    liftIO $ evaluate (snd tcSpl)
+    return $ fromMaybe (error $ "runRenamer: " ++ show rng ++ " " ++ typecheckErrors)
+                       (snd tcSpl)
+
