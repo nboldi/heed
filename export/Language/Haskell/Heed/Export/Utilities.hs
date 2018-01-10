@@ -173,8 +173,10 @@ doWriteName sp name scope = do
   let uniq = createNameUnique cm name
       namespace = occNameSpace $ nameOccName name
       nameStr = occNameString $ nameOccName name
-  liftSelda $ insert_ names [ Just nodeId :*: Just scope :*: Nothing
-                               :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: defining ]
+      nsRecord = showSDocUnsafe (pprNameSpace namespace)
+  when defining
+    $ liftSelda $ insert_ definitions [ Nothing :*: Just scope :*: pack nsRecord :*: pack nameStr :*: pack uniq ]
+  liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining ]
 
 writeModImports :: [LImportDecl n] -> TrfType ()
 writeModImports imports = do
@@ -190,9 +192,9 @@ writeImportedNames mod importedNames = do
     id <- insertWithPK modules [ def :*: pack (moduleNameString $ moduleName mod)
                                      :*: pack (show $ moduleUnitId mod)
                                      :*: Nothing ]
-    insert_ names (map (createNameImport id) importedNames)
-  where createNameImport modId name = Nothing :*: Nothing :*: Just modId
-                               :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq :*: True
+    insert_ definitions (map (createNameImport id) importedNames)
+  where createNameImport modId name
+          = Just modId :*: Nothing :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq
           where uniq = createNameUnique mod name
                 namespace = occNameSpace $ nameOccName name
                 nameStr = occNameString $ nameOccName name

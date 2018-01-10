@@ -25,7 +25,7 @@ renameDefinition newName srcSpan = do
   selectedName <- query $ limit 0 1 $ do
     n <- select names
     node <- select nodes
-    restrict $ just (node ! node_id) .== n ! name_node
+    restrict $ node ! node_id .== n ! name_node
     restrict $ (int stRow .> node ! node_start_row
                   .|| int stRow .== node ! node_start_row .&& int stCol .>= node ! node_start_col)
     restrict $ (node ! node_end_row .> int endRow
@@ -50,7 +50,7 @@ renameUnique newName original uniqs namespace = do
     n <- select names
     nameNode <- select nodes
     unqualNode <- select nodes
-    restrict $ just (nameNode ! node_id) .== n ! name_node
+    restrict $ nameNode ! node_id .== n ! name_node
                  .&& just (nameNode ! node_id) .== unqualNode ! node_parent
                  .&& unqualNode ! node_type .== int (typeId (undefined :: UnqualifiedName))
     restrict $ n ! name_uniq `isIn` map text uniqs
@@ -84,49 +84,62 @@ renameUnique newName original uniqs namespace = do
     restrict $ isNull (first nodesBeforeCol) .&& isNull (first commentBeforeCol) .&& isNull (first tokenBeforeCol)
     return (node ! node_file :*: (node ! node_start_row) + 1 :*: node ! node_end_row )
 
-  clash <- query $ distinct $ do
+  let nameInScope node sc = do
+        restrict $ (sc ! scope_start_row .< node ! node_start_row
+                      .|| sc ! scope_start_row .== node ! node_start_row .&& sc ! scope_start_col .<= node ! node_start_col)
+        restrict $ (node ! node_end_row .< sc ! scope_end_row
+                      .|| node ! node_end_row .== sc ! scope_end_row .&& node ! node_end_col .<= sc ! scope_end_col)
+  let isOuterScope sc sco  = do
+        restrict $ sco ! scope_start_row .< sc ! scope_start_row
+                     .|| sco ! scope_start_row .== sc ! scope_start_row .&& sco ! scope_start_col .<= sc ! scope_start_col
+        restrict $ sc ! scope_end_row .< sco ! scope_end_row
+                     .|| sc ! scope_end_row .== sco ! scope_end_row .&& sc ! scope_end_col .<= sco ! scope_end_col
+
+  clashWithDefined <- query $ distinct $ do
     node <- select nodes
     occ <- select names
     sc <- select scopes
     sco <- select scopes
-    snm <- select names
-    snmo <- select names
-    mi <- select moduleImports
+    snm <- select definitions
+    snmo <- select definitions
 
-    restrict $ just (node ! node_id) .== occ ! name_node
-    restrict $ snm ! name_defining
-                 .&& ( just (sc ! scope_id) .== snm ! name_scope -- snm is defined in sc
-                         .|| mi ! mi_scope_id .== sc ! scope_id -- snm is imported
-                               .&& just (mi ! mi_module_id) .== snm ! name_module )
-    restrict $ snmo ! name_defining
-                 .&& just (sco ! scope_id) .== snmo ! name_scope -- snmo is defined in the current module
+    restrict $ node ! node_id .== occ ! name_node
+    restrict $ just (sc ! scope_id) .== snm ! def_scope
+    restrict $ just (sco ! scope_id) .== snmo ! def_scope
 
-    let nameInScope occ sc = do
-          restrict $ (sc ! scope_start_row .< node ! node_start_row
-                        .|| sc ! scope_start_row .== node ! node_start_row .&& sc ! scope_start_col .<= node ! node_start_col)
-          restrict $ (node ! node_end_row .< sc ! scope_end_row
-                        .|| node ! node_end_row .== sc ! scope_end_row .&& node ! node_end_col .<= sc ! scope_end_col)
-        isOuterScope sc sco  = do
-          restrict $ sco ! scope_start_row .< sc ! scope_start_row
-                       .|| sco ! scope_start_row .== sc ! scope_start_row .&& sco ! scope_start_col .<= sc ! scope_start_col
-          restrict $ sc ! scope_end_row .< sco ! scope_end_row
-                       .|| sc ! scope_end_row .== sco ! scope_end_row .&& sc ! scope_end_col .<= sco ! scope_end_col
-    nameInScope occ sc
-    nameInScope occ sco
+    nameInScope node sc
+    nameInScope node sco
     isOuterScope sc sco
 
     -- the name found is the result of renaming, while the renamed is in scope  (and the name's definition is not closer to usage)
     restrict $ occ ! name_namespace .== text namespace
                  .&& occ ! name_str .== text (pack newName)
-                 .&& snm ! name_uniq `isIn` map text uniqs
-                 .&& snmo ! name_uniq .== occ ! name_uniq
+                 .&& snm ! def_uniq `isIn` map text uniqs
+                 .&& snmo ! def_uniq .== occ ! name_uniq
     -- OR the name found will be renamed and there is a name in scope that is like the result of the renaming (and the renamed id's definition is not closer to usage)
                 .|| occ ! name_uniq `isIn` map text uniqs
                      .&& not_ (occ ! name_defining)
-                     .&& snm ! name_str .== text (pack newName)
-                     .&& snmo ! name_uniq `isIn` map text uniqs
-                     .&& snm ! name_namespace .== text namespace
-    return ( node ! node_start_row :*: node ! node_start_col :*: snm ! name_uniq :*: snmo ! name_uniq )
+                     .&& snm ! def_str .== text (pack newName)
+                     .&& snmo ! def_uniq `isIn` map text uniqs
+                     .&& snm ! def_namespace .== text namespace
+    return ( node ! node_start_row :*: node ! node_start_col :*: snm ! def_uniq :*: snmo ! def_uniq :*: true )
+
+  clashWithImported <- query $ distinct $ do
+    node <- select nodes
+    occ <- select names
+    def <- select definitions
+    sc <- select scopes
+    mi <- select moduleImports
+
+    restrict $ node ! node_id .== occ ! name_node
+                 .&& occ ! name_uniq `isIn` map text uniqs
+                 .&& not_ (occ ! name_defining)
+    nameInScope node sc
+    restrict $ mi ! mi_scope_id .== sc ! scope_id .&& just (mi ! mi_module_id) .== def ! def_module
+    restrict $ def ! def_str .== text (pack newName) .&& def ! def_namespace .== text namespace
+    return ( node ! node_start_row :*: node ! node_start_col :*: occ ! name_uniq :*: def ! def_uniq :*: false )
+
+  let clash = clashWithDefined ++ clashWithImported
 
   -- find the fields that could be merged with the name
   mergeableCandidate <- query $ do
@@ -145,7 +158,7 @@ renameUnique newName original uniqs namespace = do
                  .&& nCtor ! cf_field .== nType ! type_name
     return (occCtor ! cf_field :*: occType ! type_desc :*: nType ! type_desc )
   let mergeable = catMaybes $ map (\( name :*: t1 :*: t2 ) -> if read (unpack t1) `typeRepEq` read (unpack t2) then Just name else Nothing) mergeableCandidate
-      isMergeable (r :*: c :*: n1 :*: n2) = n1 `notElem` mergeable && n2 `notElem` mergeable
+      isMergeable (r :*: c :*: n1 :*: n2 :*: _) = n1 `notElem` mergeable && n2 `notElem` mergeable
       isDefining ( _ :*: _ :*: _ :*: _ :*: _ :*: d ) = d
   case (or (map isDefining renameRanges) || unpack namespace == "type variable", filter isMergeable clash) of
     (False, _) -> return $ Left $ "Definition of name is not found."

@@ -85,6 +85,9 @@ cleanDatabase = withForeignCheckTurnedOff $ do
    tryDropTable names
    createTable names
 
+   tryDropTable definitions
+   createTable definitions
+
    tryDropTable scopes
    createTable scopes
 

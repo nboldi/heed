@@ -101,23 +101,33 @@ modules = table "modules" $ autoPrimary "module_id"
 
 -- * Semantic information
 
-type Name = Maybe RowID :*: Maybe RowID :*: Maybe RowID :*: Text :*: Text :*: Text :*: Bool
+type Name = RowID :*: Text :*: Text :*: Text :*: Bool
 
 names :: Table Name
-names = table "names" $ optional "name_node" -- `fk` (nodes, node_id)
-                          :*: optional "name_scope" -- `fk` (scopes, scope_id) -- the scope in which the name is bound
-                          :*: optional "name_module" -- `fk` (modules, module_id) -- the scope in which the name is bound
+names = table "names" $ required "name_node" `fk` (nodes, node_id)
                           :*: required "name_namespace"
                           :*: required "name_str"
                           :*: required "name_uniq"
                           :*: required "name_defining"
 ( name_node
-    :*: name_scope
-    :*: name_module
     :*: name_namespace
     :*: name_str
     :*: name_uniq
     :*: name_defining ) = selectors names
+
+type Definition = Maybe RowID :*: Maybe RowID :*: Text :*: Text :*: Text
+
+definitions :: Table Definition
+definitions = table "definitions" $ optional "def_module" -- `fk` (modules, module_id)
+                                      :*: optional "def_scope" -- `fk` (scopes, scope_id)
+                                      :*: required "def_namespace"
+                                      :*: required "def_str"
+                                      :*: required "def_uniq"
+( def_module
+    :*: def_scope
+    :*: def_namespace
+    :*: def_str
+    :*: def_uniq ) = selectors definitions
 
 type Type = Text :*: Text
 
