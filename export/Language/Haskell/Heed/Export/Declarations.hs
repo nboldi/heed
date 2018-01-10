@@ -123,8 +123,9 @@ exportDeclaration (L l (DerivD (DerivDecl t strat overlap)))
                        ]
 exportDeclaration (L l (RuleD (HsRules _ rules)))
   = export PragmaD l [ export RulePragma l [ mapM_ exportRewriteRule rules ] ]
-exportDeclaration (L l (RoleAnnotD (RoleAnnotDecl name roles)))
-  = export RoleD l [ exportName name, mapM_ exportRole roles ]
+exportDeclaration role@(L l (RoleAnnotD (RoleAnnotDecl name roles)))
+  = do export RoleD l [ exportName name, mapM_ exportRole roles ]
+       maybe (return ()) (forceNameExport . exportDeclaration) =<< (renameRole role)
 exportDeclaration (L l (DefD (DefaultDecl types)))
   = export DefaultD l [ mapM_ exportType types ]
 exportDeclaration (L l (ForD (ForeignImport name (hsib_body -> typ) _ (CImport ccall safe _ _ _))))

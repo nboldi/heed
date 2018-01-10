@@ -20,6 +20,7 @@ import Bag
 import HscTypes
 import Type
 import BasicTypes
+import RnSplice
 import TcRnTypes
 import RnEnv
 import RnExpr
@@ -81,24 +82,28 @@ class (OutputableBndr n, OutputableBndr (NameOrRdrName n), HsHasName (FieldOcc n
   getBindsAndSigs :: HsValBinds n -> ([LSig n], LHsBinds n)
   renameSplice :: Located (HsSplice n) -> TrfType (Maybe (Located (HsSplice GHC.Name)))
   renameBracket :: Located (HsBracket n) -> TrfType (Maybe (Located (HsBracket GHC.Name)))
+  renameRole :: Located (HsDecl n) -> TrfType (Maybe (Located (HsDecl GHC.Name)))
 
 instance CompilationPhase RdrName where
   getBindsAndSigs (ValBindsIn binds sigs) = (sigs, binds)
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsOut in parsed source"
   renameSplice = fmap Just . rdrSplice
   renameBracket = fmap Just . rdrBracket
+  renameRole = fmap Just . rdrRole
 
 instance CompilationPhase GHC.Name where
   getBindsAndSigs (ValBindsOut bindGroups sigs) = (sigs, unionManyBags (map snd bindGroups))
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
   renameSplice _ = return Nothing
   renameBracket _ = return Nothing
+  renameRole _ = return Nothing
 
 instance CompilationPhase Id where
   getBindsAndSigs (ValBindsOut bindGroups _) = ([], unionManyBags (map snd bindGroups))
   getBindsAndSigs _ = error "getBindsAndSigs: ValBindsIn in renamed source"
   renameSplice _ = return Nothing
   renameBracket _ = return Nothing
+  renameRole _ = return Nothing
 
 class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, CompilationPhase n)
       => HsName n where
@@ -378,15 +383,14 @@ rdrSplice = runRenamer tcHsSplice'
       = pure $ HsQuasiQuote (mkUnboundNameRdr id1) (mkUnboundNameRdr id2) sp fs
 
 rdrBracket :: Located (HsBracket RdrName) -> TrfType (Located (HsBracket GHC.Name))
-rdrBracket = runRenamer tcHsBracket
-  where
-    tcHsBracket (ExpBr expr) = ExpBr . fst <$> rnLExpr expr
-    -- tcHsBracket (PatBr pat) = PatBr . fst <$> rnBindPat pat
-    -- tcHsBracket (DecBrL [LHsDecl id])
-    -- tcHsBracket (DecBrG (HsGroup id))
-    -- tcHsBracket (TypBr (LHsType id))
-    tcHsBracket (VarBr b id) = VarBr b <$> lookupOccRn id
-    -- tcHsBracket (TExpBr (LHsExpr id))
+rdrBracket = runRenamer (\br -> extractBr . fst <$> rnBracket undefined br)
+  where extractBr (HsBracket br) = br
+        extractBr (HsRnBracketOut br _) = br
+
+rdrRole :: Located (HsDecl RdrName) -> TrfType (Located (HsDecl GHC.Name))
+rdrRole = runRenamer tcHsRole
+  where tcHsRole (RoleAnnotD (RoleAnnotDecl (L l name) roles))
+          = RoleAnnotD <$> (RoleAnnotDecl <$> (L l <$> lookupOccRn name) <*> pure roles)
 
 runRenamer :: (a RdrName -> RnM (a GHC.Name)) -> Located (a RdrName) -> TrfType (Located (a GHC.Name))
 runRenamer rename (L rng rdr) = do
