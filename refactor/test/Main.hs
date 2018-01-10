@@ -74,7 +74,7 @@ renameDefinitionTests =
   , ("Refactor.RenameDefinition.TypeBracket", "6:6-6:7", "B")
   , ("Refactor.RenameDefinition.ValBracket", "8:11-8:12", "B")
   , ("Refactor.RenameDefinition.FunnyDo", "3:1-3:2", "aaa")
-  -- , ("Refactor.RenameDefinition.RenameModuleAlias", "3:21-3:23", "L")
+  , ("Refactor.RenameDefinition.RenameModuleAlias", "3:21-3:23", "L")
   , ("Refactor.RenameDefinition.MergeFields", "3:14-3:15", "y")
   , ("Refactor.RenameDefinition.MergeFields_RenameY", "3:34-3:35", "x")
   , ("Refactor.RenameDefinition.PatternSynonym", "6:9", "ArrowAppl")

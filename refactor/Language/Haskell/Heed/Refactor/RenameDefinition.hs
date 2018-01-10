@@ -42,7 +42,7 @@ renameDefinition newName srcSpan = do
             return (bnd ! imp_bind_rhs)
           renameUnique newName original (uniq : associatedNames) namespace
         Just err -> return $ Left $ "The new name '" ++ newName ++ "' is not correct: " ++ err
-    _ -> return $ Left $ "No name found at selection: " ++ show srcSpan
+    _ -> renameModule newName (stRow, stCol, endRow, endCol)
 
 renameUnique :: String -> Text -> [Text] -> Text -> SeldaT IO (Either String [(RealSrcSpan, String)])
 renameUnique newName original uniqs namespace = do
@@ -175,6 +175,49 @@ renameUnique newName original uniqs namespace = do
     resToSpan (file :*: sr :*: sc :*: er :*: ec :*: _)
       = mkRealSrcSpan (mkRealSrcLoc (mkFastString (unpack file)) sr sc) (mkRealSrcLoc (mkFastString (unpack file)) er ec)
     alignToSpan file sr = realSrcLocSpan (mkRealSrcLoc (mkFastString (unpack file)) sr 1)
+
+renameModule :: String -> (Int, Int, Int, Int) -> SeldaT IO (Either String [(RealSrcSpan, String)])
+renameModule newName (stRow, stCol, endRow, endCol) = do
+  renameModuleName <- query $ do
+    node <- select nodes
+    attr <- select attributes
+    restrict $ node ! node_type .== int (typeId (undefined :: ModuleName))
+                 .&& attr ! container .== node ! node_id
+                 .&& not_ (isNull (attr ! text_attribute))
+    restrict $ (int stRow .> node ! node_start_row
+                  .|| int stRow .== node ! node_start_row .&& int stCol .>= node ! node_start_col)
+    restrict $ (node ! node_end_row .> int endRow
+                  .|| node ! node_end_row .== int endRow .&& node ! node_end_col .>= int endCol)
+    return $ attr ! text_attribute
+  case renameModuleName of [ Just mn ] -> renameModuleStr mn newName
+                           _           -> return $ Left $ "No name is selected."
+
+renameModuleStr :: Text -> String -> SeldaT IO (Either String [(RealSrcSpan, String)])
+renameModuleStr oldName newName = do
+  rewritten <- query $ do
+    node <- select nodes
+    attr <- select attributes
+    restrict $ node ! node_type `isIn` [ int (typeId (undefined :: ModuleName))
+                                       , int (typeId (undefined :: Qualifiers)) ]
+                 .&& attr ! container .== node ! node_id
+                 .&& attr ! text_attribute .== just (text oldName)
+    return ( node ! node_file :*: node ! node_start_row :*: node ! node_start_col
+               :*: node ! node_end_row :*: node ! node_end_col )
+
+  conflicts <- query $ do
+    node <- select nodes
+    attr <- select attributes
+    restrict $ node ! node_type .== int (typeId (undefined :: ModuleName))
+                 .&& attr ! container .== node ! node_id
+                 .&& attr ! text_attribute .== just (text (pack newName))
+    return ( node ! node_file :*: node ! node_start_row :*: node ! node_start_col
+               :*: node ! node_end_row :*: node ! node_end_col )
+
+  let rewriteChanges = map ((,newName) . resToSpan) rewritten
+  case conflicts of [] -> return $ Right rewriteChanges
+                    conflicts -> return $ Left $ "Conflicts found while renaming module: " ++ show conflicts
+  where resToSpan (file :*: sr :*: sc :*: er :*: ec)
+          = mkRealSrcSpan (mkRealSrcLoc (mkFastString (unpack file)) sr sc) (mkRealSrcLoc (mkFastString (unpack file)) er ec)
 
 applyRewritings :: [(RealSrcSpan, String)] -> String -> String
 applyRewritings [] = id

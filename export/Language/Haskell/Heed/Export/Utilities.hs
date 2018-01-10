@@ -370,7 +370,7 @@ instance HsHasName (FieldOcc Id) where
 instance HsHasName e => HsHasName (Located e) where
   hsGetNames (L _ e) = hsGetNames e
 
--- * Renaming splices
+-- * Renaming things that are missing from later representations
 
 rdrSplice :: Located (HsSplice RdrName) -> TrfType (Located (HsSplice GHC.Name))
 rdrSplice = runRenamer tcHsSplice'
