@@ -56,8 +56,6 @@ exportSrcFile root modName doExport =
              eps <- liftIO $ hscEPS sess
              let pit = eps_PIT eps
                  hpt = hsc_HPT sess
-             -- mapM_ (\m -> liftIO $ putStrLn $ showSDocUnsafe $ ppr (mi_module $ hm_iface m, map availNamesWithSelectors $ md_exports $ hm_details m)) (eltsUDFM hpt)
-             -- mapM_ (\m -> liftIO $ putStrLn $ showSDocUnsafe $ ppr (mi_module m, filter (("++" `isInfixOf`) . showSDocUnsafe . ppr) $ map availNamesWithSelectors $ mi_exports m)) (moduleEnvElts pit)
              mapM_ (\m -> writeImportedNames (mi_module $ hm_iface m) (concatMap (\a -> map (\n -> if n == availName a then (n, Nothing) else (n, Just $ availName a)) $ availNamesWithSelectors a) $ md_exports $ hm_details m)) (eltsUDFM hpt)
              mapM_ (\m -> writeImportedNames (mi_module m) (concatMap (\a -> map (\n -> if n == availName a then (n, Nothing) else (n, Just $ availName a)) $ availNames a) $ mi_exports m)) (moduleEnvElts pit)
           insertTokens tokenKeys
@@ -116,3 +114,9 @@ cleanDatabase = withForeignCheckTurnedOff $ do
 
    tryDropTable moduleImports
    createTable moduleImports
+
+   tryDropTable moduleImportShowing
+   createTable moduleImportShowing
+
+   tryDropTable moduleImportHiding
+   createTable moduleImportHiding

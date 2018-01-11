@@ -25,6 +25,7 @@ library
                      , heed-core
                      , text
   exposed-modules: Language.Haskell.Heed.Refactor.RenameDefinition
+                 , Language.Haskell.Heed.Refactor.OrganizeImports
   default-language: Haskell2010
 
 

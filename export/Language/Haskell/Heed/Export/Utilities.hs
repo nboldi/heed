@@ -166,13 +166,15 @@ writeAttribute d = do
     Nothing -> return () -- not in export-syntax mode
 
 lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
-lookupNameNode = prepared $ \file start_row start_col -> do
+lookupNameNode = lookupNode [ typeId (undefined :: Schema.Name), typeId (undefined :: Schema.Operator) ]
+
+lookupNode :: [Int] -> Text -> Int -> Int -> SeldaT Ghc [RowID]
+lookupNode types = prepared $ \file start_row start_col -> do
   n <- select nodes
   restrict $ file .== n ! node_file
               .&& start_row .== n ! node_start_row
               .&& start_col .== n ! node_start_col
-              .&& (n ! node_type .== int (typeId (undefined :: Schema.Name))
-                    .|| n ! node_type .== int (typeId (undefined :: Schema.Operator)))
+              .&& n ! node_type `isIn` (map int types)
   return (n ! node_id)
 
 lookupImportedModule :: Text -> Text -> SeldaT Ghc [RowID]
@@ -217,12 +219,20 @@ doWriteName sp name scope = do
         $ liftSelda $ insert_ definitions [ Nothing :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: Nothing ]
       liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining ]
 
-writeModImports :: [LImportDecl n] -> TrfType ()
-writeModImports imports = do
-  Just sc <- asks scope
-  mods <- liftSelda $ liftGhc $ mapM (\imp -> (ideclQualified imp, maybe (unLoc $ ideclName imp) unLoc (ideclAs imp), ) <$> findModule (unLoc $ ideclName imp) (fmap sl_fs $ ideclPkgQual imp)) (map unLoc imports)
-  modIds <- liftSelda $ concat <$> mapM (\(q,s,m) -> map (q, moduleNameString s, ) <$> lookupImportedModule (pack $ moduleNameString $ moduleName m) (pack $ show $ moduleUnitId m)) mods
-  liftSelda $ insert_ moduleImports (map (\(q,s,m) -> sc :*: m :*: q :*: pack s) modIds)
+writeModImport :: LImportDecl n -> TrfType ()
+writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
+  sc <- asks scope
+  mod <- liftSelda $ liftGhc $ findModule (unLoc n) (fmap sl_fs pkg)
+  modIds <- liftSelda $ lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
+  let (file, start_row, start_col, _, _) = spanData l
+  importNode <- liftSelda $ lookupNode [ typeId (undefined :: Schema.ImportDecl) ] (pack file) start_row start_col
+  case (sc, modIds) of
+    (Just sc, [modId])
+      -> liftSelda $ insert_ moduleImports
+           [ sc :*: modId :*: qual :*: maybe False (not . fst) hiding
+                :*: pack (moduleNameString (maybe (unLoc n) unLoc declAs))
+                :*: listToMaybe importNode ]
+    _ -> return ()
 
 writeImportedNames :: GHC.Module -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
 writeImportedNames mod importedNames = do

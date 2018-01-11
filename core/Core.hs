@@ -173,22 +173,29 @@ scopes = table "scopes" $ autoPrimary "scope_id"
     :*: scope_end_row
     :*: scope_end_col ) = selectors scopes
 
-type ModuleImport = RowID :*: RowID :*: Bool :*: Text
+type ModuleImport = RowID :*: RowID :*: Bool :*: Bool :*: Text :*: Maybe RowID
 
 moduleImports :: Table ModuleImport
 moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, scope_id)
                                           :*: required "mi_module_id" `fk` (modules, module_id)
                                           :*: required "mi_qualified"
+                                          :*: required "mi_just_listed"
                                           :*: required "mi_qualifier"
-( mi_scope_id :*: mi_module_id :*: mi_qualified :*: mi_qualifier ) = selectors moduleImports
+                                          :*: optional "mi_node"
+( mi_scope_id :*: mi_module_id :*: mi_qualified :*: mi_just_listed :*: mi_qualifier :*: mi_node )
+  = selectors moduleImports
 
--- type ModuleImportHiding = RowID :*: RowID
---
--- moduleImports :: Table ModuleImport
--- moduleImports = table "module_import" $ required "mi_scope_id" `fk` (scopes, scope_id)
---                                           :*: required "mi_module_id" `fk` (modules, module_id)
--- ( mi_scope_id :*: sc_scope_id ) = selectors moduleImports
+type ModuleImportMod = RowID :*: Text
 
+moduleImportShowing :: Table ModuleImportMod
+moduleImportShowing = table "module_imports_showing" $ required "mis_module" `fk` (modules, module_id)
+                                                         :*: required "mis_name"
+( mis_module :*: mis_name ) = selectors moduleImportShowing
+
+moduleImportHiding :: Table ModuleImportMod
+moduleImportHiding = table "module_imports_hiding" $ required "mih_module" `fk` (modules, module_id)
+                                                       :*: required "mih_name"
+( mih_module :*: mih_name ) = selectors moduleImportHiding
 
 -- * Lexical information
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 module Language.Haskell.Heed.Refactor.RenameDefinition where
 
 import System.Environment
@@ -19,7 +20,7 @@ import System.IO.Strict (hGetContents)
 import Core
 import Language.Haskell.Heed.Schema
 
-renameDefinition :: String -> String -> SeldaT IO (Either String [(RealSrcSpan, String)])
+renameDefinition :: String -> String -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
 renameDefinition newName srcSpan = do
   let (stRow, stCol, endRow, endCol) = readSpan srcSpan
   selectedName <- query $ limit 0 1 $ do
@@ -44,7 +45,7 @@ renameDefinition newName srcSpan = do
         Just err -> return $ Left $ "The new name '" ++ newName ++ "' is not correct: " ++ err
     _ -> renameModule newName (stRow, stCol, endRow, endCol)
 
-renameUnique :: String -> Text -> [Text] -> Text -> SeldaT IO (Either String [(RealSrcSpan, String)])
+renameUnique :: String -> Text -> [Text] -> Text -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
 renameUnique newName original uniqs namespace = do
   renameRanges <- query $ do
     n <- select names
@@ -131,10 +132,16 @@ renameUnique newName original uniqs namespace = do
     sc <- select scopes
     mi <- select moduleImports
 
+    hiding <- leftJoin (\h -> h ! mih_module .== mi ! mi_module_id
+                                .&& h ! mih_name `isIn` map text uniqs) (select moduleImportHiding)
+    showing <- leftJoin (\s -> s ! mis_module .== mi ! mi_module_id
+                                .&& s ! mis_name `isIn` map text uniqs) (select moduleImportShowing)
     restrict $ node ! node_id .== occ ! name_node
                  .&& occ ! name_uniq `isIn` map text uniqs
                  .&& not_ (occ ! name_defining)
                  .&& not_ (mi ! mi_qualified) -- TODO: check for qualified conflicts
+                 -- .&& isNull (first hiding)
+                 -- .&& (not_ (mi ! mi_just_listed) .|| not_ (isNull (first showing)))
     nameInScope node sc
     restrict $ mi ! mi_scope_id .== sc ! scope_id .&& just (mi ! mi_module_id) .== def ! def_module
     restrict $ def ! def_str .== text (pack newName) .&& def ! def_namespace .== text namespace
@@ -167,9 +174,9 @@ renameUnique newName original uniqs namespace = do
       let nameLengthChange = length newName - length (unpack original)
           nameExtend = if nameLengthChange > 0 then nameLengthChange else 0
           nameShorten = if nameLengthChange < 0 then -nameLengthChange else 0
-          nameRewriteChanges = map ((,newName) . resToSpan) renameRanges
+          nameRewriteChanges = map ((, Right newName) . resToSpan) renameRanges
           alignDistinct = nub $ sortOn second align
-          realignChanges = concatMap (\(fl :*: sr :*: er) -> map ((, replicate nameExtend ' ') . updateEnd (updateCol (+ nameShorten)) . alignToSpan fl) [sr..er]) alignDistinct
+          realignChanges = concatMap (\(fl :*: sr :*: er) -> map ((, Right $ replicate nameExtend ' ') . updateEnd (updateCol (+ nameShorten)) . alignToSpan fl) [sr..er]) alignDistinct
       return $ Right (nameRewriteChanges ++ realignChanges)
     (True, clashes) -> return $ Left $ "Name clashes at: " ++ show clashes
   where
@@ -177,7 +184,7 @@ renameUnique newName original uniqs namespace = do
       = mkRealSrcSpan (mkRealSrcLoc (mkFastString (unpack file)) sr sc) (mkRealSrcLoc (mkFastString (unpack file)) er ec)
     alignToSpan file sr = realSrcLocSpan (mkRealSrcLoc (mkFastString (unpack file)) sr 1)
 
-renameModule :: String -> (Int, Int, Int, Int) -> SeldaT IO (Either String [(RealSrcSpan, String)])
+renameModule :: String -> (Int, Int, Int, Int) -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
 renameModule newName (stRow, stCol, endRow, endCol) = do
   renameModuleName <- query $ do
     node <- select nodes
@@ -193,7 +200,7 @@ renameModule newName (stRow, stCol, endRow, endCol) = do
   case renameModuleName of [ Just mn ] -> renameModuleStr mn newName
                            _           -> return $ Left $ "No name is selected."
 
-renameModuleStr :: Text -> String -> SeldaT IO (Either String [(RealSrcSpan, String)])
+renameModuleStr :: Text -> String -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
 renameModuleStr oldName newName = do
   rewritten <- query $ do
     node <- select nodes
@@ -214,24 +221,39 @@ renameModuleStr oldName newName = do
     return ( node ! node_file :*: node ! node_start_row :*: node ! node_start_col
                :*: node ! node_end_row :*: node ! node_end_col )
 
-  let rewriteChanges = map ((,newName) . resToSpan) rewritten
+  let rewriteChanges = map ((, Right newName) . resToSpan) rewritten
   case conflicts of [] -> return $ Right rewriteChanges
                     conflicts -> return $ Left $ "Conflicts found while renaming module: " ++ show conflicts
   where resToSpan (file :*: sr :*: sc :*: er :*: ec)
           = mkRealSrcSpan (mkRealSrcLoc (mkFastString (unpack file)) sr sc) (mkRealSrcLoc (mkFastString (unpack file)) er ec)
 
-applyRewritings :: [(RealSrcSpan, String)] -> String -> String
-applyRewritings [] = id
-applyRewritings rewrites@((aRange,_):_) = applyRewritings' (sortOn fst rewrites) (mkRealSrcLoc (srcSpanFile aRange) 1 1)
+applyRewritings :: [(RealSrcSpan, Either RealSrcSpan String)] -> String -> String
+applyRewritings [] s = s
+applyRewritings rewrites@((aRange,_):_) s
+  = applyRewritings' (map (\(sp, repl) -> (sp, either (extractSpan s) id repl)) $ sortOn fst rewrites)
+                     (mkRealSrcLoc (srcSpanFile aRange) 1 1) s
+  where extracted = catMaybes $ map (\case (_, Left rng) -> Just rng; _ -> Nothing) rewrites
+
+extractSpan :: String -> RealSrcSpan -> String
+extractSpan str sp = takeToPos start end "" . dropUntil fileStart start $ str
+  where start = realSrcSpanStart sp
+        end = realSrcSpanEnd sp
+        fileStart = mkRealSrcLoc (srcSpanFile sp) 1 1
 
 applyRewritings' :: [(RealSrcSpan, String)] -> RealSrcLoc -> String -> String
 applyRewritings' ((replace, replacement):rest) loc s | realSrcSpanStart replace == loc
   = replacement ++ applyRewritings' rest (realSrcSpanEnd replace) (dropUntil loc (realSrcSpanEnd replace) s)
-  where dropUntil loc end s | loc == end = s
-        dropUntil loc end (c:rest) = dropUntil (advanceSrcLoc loc c) end rest
-        dropUntil _ _ [] = []
 applyRewritings' replacements loc (c:rest) = c : applyRewritings' replacements (advanceSrcLoc loc c) rest
 applyRewritings' _ _ [] = []
+
+dropUntil loc end s | loc == end = s
+dropUntil loc end (c:rest) = dropUntil (advanceSrcLoc loc c) end rest
+dropUntil _ _ [] = []
+
+takeToPos :: RealSrcLoc -> RealSrcLoc -> String -> String -> String
+takeToPos loc end store s | loc == end = reverse store
+takeToPos loc end store (c:rest) = takeToPos (advanceSrcLoc loc c) end (c:store) rest
+takeToPos _ _ store [] = store
 
 readSpan :: String -> (Int, Int, Int, Int)
 readSpan sp = case splitOneOf "-:" sp of [stRow, stCol, endRow, endCol] -> (read stRow, read stCol, read endRow, read endCol)

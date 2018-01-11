@@ -28,7 +28,7 @@ exportRnModule :: HsName n => Exporter (HsGroup n, [LImportDecl n], Maybe [LIE n
 exportRnModule (gr,imports,exps,_)
   = do rn <- asks moduleRange
        addToScope rn $ do
-         writeModImports imports
+         mapM_ writeModImport imports
          export Schema.Module noSrcSpan [ return ()
                                         , maybe (return ()) (mapM_ exportExportSpec) exps
                                         , mapM_ exportImportDecl imports
@@ -51,7 +51,7 @@ exportExportSpec (L l ie) = export NormalExport l [ exportIESpec (L l ie) ]
 
 exportImportDecl :: HsName n => Exporter (LImportDecl n)
 exportImportDecl (L l ie) | ideclImplicit ie = return ()
-exportImportDecl (L l (GHC.ImportDecl _ name pkg isSrc isSafe isQual _ declAs declHiding))
+exportImportDecl imp@(L l (GHC.ImportDecl _ name pkg isSrc isSafe isQual _ declAs declHiding))
   = export Schema.ImportDecl l [ when isSrc (export ImportSource l [])
                                , when isQual (export ImportQualified l [])
                                , when isSafe (export ImportSafe l [])
