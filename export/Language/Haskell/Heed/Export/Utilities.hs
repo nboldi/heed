@@ -122,6 +122,9 @@ goInto Nothing _ = id
 defining :: TrfType a -> TrfType a
 defining = local $ \s -> s { isDefining = True }
 
+notDefining :: TrfType a -> TrfType a
+notDefining = local $ \s -> s { isDefining = False }
+
 forceNameExport :: TrfType a -> TrfType a
 forceNameExport = local $ \s -> s { nameExportForced = True }
 

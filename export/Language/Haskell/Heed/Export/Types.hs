@@ -11,6 +11,7 @@ import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Schema
 
 import Control.Monad
+import Control.Monad.IO.Class
 import HsTypes
 import BasicTypes as GHC
 import HsExpr
@@ -54,7 +55,7 @@ exportType (L l t) = exportError "type" t
 exportTypeVar :: HsName n => Exporter (Located (HsTyVarBndr n))
 exportTypeVar (L l (UserTyVar name)) = export NormalTV l [ exportName name ]
 exportTypeVar (L l (KindedTyVar name kind))
-  = export KindedTV l [ exportName name, exportKindSignature (Just kind) ]
+  = export KindedTV l [ exportName name, notDefining $ exportKindSignature (Just kind) ]
 
 exportContext :: HsName n => Exporter (Located (HsContext n))
 exportContext (L l ctx) = export Context l [ mapM_ exportPredicate ctx ]

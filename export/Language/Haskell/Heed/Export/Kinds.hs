@@ -8,6 +8,8 @@ import {-# SOURCE #-} Language.Haskell.Heed.Export.Types
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Schema
 
+import Control.Monad.IO.Class
+import Control.Monad.Reader
 import Data.Data
 import HsTypes
 import RdrName
@@ -17,7 +19,9 @@ import SrcLoc
 
 exportKindSignature :: HsName n => Exporter (Maybe (LHsKind n))
 exportKindSignature (Just kind)
-  = export KindSignature (getLoc kind) [ exportKind kind ]
+  = do def <- asks isDefining
+       liftIO $ putStrLn $ "exportKindSignature : " ++ show (getLoc kind) ++ " " ++ show def
+       export KindSignature (getLoc kind) [ exportKind kind ]
 exportKindSignature Nothing = return ()
 
 exportKind :: HsName n => Exporter (LHsKind n)
@@ -30,7 +34,8 @@ exportKind (L l (HsAppTy kFun kArg))
   = export ApplicationK l [ exportKind kFun, exportKind kArg ]
 exportKind (L l (HsOpTy lhs op rhs))
   = export InfixApplicationK l [ exportKind lhs, exportOperator op, exportKind rhs ]
-exportKind (L l (HsTyVar _ kv)) = export VarK l [ defining $ exportName kv ]
+exportKind (L l (HsTyVar _ kv)) | occNameSpace (occName (unLoc kv)) == tvName
+   = export VarK l [ defining $ exportName kv ]
 exportKind (L l (HsListTy kind)) = export ListK l [ exportKind kind ]
 exportKind (L l (HsTupleTy _ kinds)) = export TupleK l [ mapM_ exportKind kinds ]
 exportKind (L l (HsAppsTy [unLoc -> HsAppPrefix k])) = exportKind k
