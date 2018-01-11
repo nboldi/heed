@@ -132,16 +132,26 @@ renameUnique newName original uniqs namespace = do
     sc <- select scopes
     mi <- select moduleImports
 
-    hiding <- leftJoin (\h -> h ! mih_module .== mi ! mi_module_id
-                                .&& h ! mih_name `isIn` map text uniqs) (select moduleImportHiding)
-    showing <- leftJoin (\s -> s ! mis_module .== mi ! mi_module_id
-                                .&& s ! mis_name `isIn` map text uniqs) (select moduleImportShowing)
+    hiding <- leftJoin (\(node :*: name) -> just node .== mi ! mi_node) $ do
+      mih <- select moduleImportHiding
+      node <- select nodes
+      restrict $ mih ! mih_node .== node ! node_id
+                  .&& mih ! mih_str .== text (pack newName)
+      return (node ! node_id :*: mih ! mih_name)
+
+    showing <- leftJoin (\(node :*: name) -> just node .== mi ! mi_node) $ do
+      mis <- select moduleImportShowing
+      node <- select nodes
+      restrict $ mis ! mis_node .== node ! node_id
+                  .&& mis ! mis_str .== text (pack newName)
+      return (node ! node_id :*: mis ! mis_name)
+
     restrict $ node ! node_id .== occ ! name_node
                  .&& occ ! name_uniq `isIn` map text uniqs
                  .&& not_ (occ ! name_defining)
                  .&& not_ (mi ! mi_qualified) -- TODO: check for qualified conflicts
-                 -- .&& isNull (first hiding)
-                 -- .&& (not_ (mi ! mi_just_listed) .|| not_ (isNull (first showing)))
+                 .&& isNull (first hiding)
+                 .&& (not_ (mi ! mi_just_listed) .|| not_ (isNull (first showing)))
     nameInScope node sc
     restrict $ mi ! mi_scope_id .== sc ! scope_id .&& just (mi ! mi_module_id) .== def ! def_module
     restrict $ def ! def_str .== text (pack newName) .&& def ! def_namespace .== text namespace

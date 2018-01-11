@@ -219,13 +219,20 @@ doWriteName sp name scope = do
         $ liftSelda $ insert_ definitions [ Nothing :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: Nothing ]
       liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining ]
 
-writeModImport :: LImportDecl n -> TrfType ()
+writeModImport :: HsName n => LImportDecl n -> TrfType ()
 writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
   sc <- asks scope
+  cm <- asks (ms_mod . compiledModule)
   mod <- liftSelda $ liftGhc $ findModule (unLoc n) (fmap sl_fs pkg)
   modIds <- liftSelda $ lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
   let (file, start_row, start_col, _, _) = spanData l
   importNode <- liftSelda $ lookupNode [ typeId (undefined :: Schema.ImportDecl) ] (pack file) start_row start_col
+  let trfLie n ie = n :*: pack (createNameUnique cm name) :*: pack (occNameString (occName name))
+        where name = head . hsGetNames . ieName . unLoc $ ie
+  case (importNode, hiding) of
+    ([n], Just (True, h)) -> liftSelda $ insert_ moduleImportHiding (map (trfLie n) (unLoc h))
+    ([n], Just (False, h)) -> liftSelda $ insert_ moduleImportShowing (map (trfLie n) (unLoc h))
+    _ -> return ()
   case (sc, modIds) of
     (Just sc, [modId])
       -> liftSelda $ insert_ moduleImports

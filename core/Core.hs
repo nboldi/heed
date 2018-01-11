@@ -185,17 +185,19 @@ moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, sc
 ( mi_scope_id :*: mi_module_id :*: mi_qualified :*: mi_just_listed :*: mi_qualifier :*: mi_node )
   = selectors moduleImports
 
-type ModuleImportMod = RowID :*: Text
+type ModuleImportMod = RowID :*: Text :*: Text
 
 moduleImportShowing :: Table ModuleImportMod
-moduleImportShowing = table "module_imports_showing" $ required "mis_module" `fk` (modules, module_id)
+moduleImportShowing = table "module_imports_showing" $ required "mis_node"
                                                          :*: required "mis_name"
-( mis_module :*: mis_name ) = selectors moduleImportShowing
+                                                         :*: required "mis_str"
+( mis_node :*: mis_name :*: mis_str ) = selectors moduleImportShowing
 
 moduleImportHiding :: Table ModuleImportMod
-moduleImportHiding = table "module_imports_hiding" $ required "mih_module" `fk` (modules, module_id)
+moduleImportHiding = table "module_imports_hiding" $ required "mih_node"
                                                        :*: required "mih_name"
-( mih_module :*: mih_name ) = selectors moduleImportHiding
+                                                       :*: required "mih_str"
+( mih_node :*: mih_name :*: mih_str ) = selectors moduleImportHiding
 
 -- * Lexical information
 
