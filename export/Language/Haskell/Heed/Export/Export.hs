@@ -11,6 +11,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Database.Selda
 import Database.Selda.SQLite
+import Data.List
 import Data.Maybe
 import qualified Data.Map as Map
 import Data.Text (pack, unpack)
@@ -55,8 +56,10 @@ exportSrcFile root modName doExport =
              eps <- liftIO $ hscEPS sess
              let pit = eps_PIT eps
                  hpt = hsc_HPT sess
-             mapM_ (\m -> writeImportedNames (mi_module $ hm_iface m) (concatMap availNames $ md_exports $ hm_details m)) (eltsUDFM hpt)
-             mapM_ (\m -> writeImportedNames (mi_module m) (concatMap availNames $ mi_exports m)) (moduleEnvElts pit)
+             -- mapM_ (\m -> liftIO $ putStrLn $ showSDocUnsafe $ ppr (mi_module $ hm_iface m, map availNamesWithSelectors $ md_exports $ hm_details m)) (eltsUDFM hpt)
+             -- mapM_ (\m -> liftIO $ putStrLn $ showSDocUnsafe $ ppr (mi_module m, filter (("++" `isInfixOf`) . showSDocUnsafe . ppr) $ map availNamesWithSelectors $ mi_exports m)) (moduleEnvElts pit)
+             mapM_ (\m -> writeImportedNames (mi_module $ hm_iface m) (concatMap (\a -> map (\n -> if n == availName a then (n, Nothing) else (n, Just $ availName a)) $ availNamesWithSelectors a) $ md_exports $ hm_details m)) (eltsUDFM hpt)
+             mapM_ (\m -> writeImportedNames (mi_module m) (concatMap (\a -> map (\n -> if n == availName a then (n, Nothing) else (n, Just $ availName a)) $ availNames a) $ mi_exports m)) (moduleEnvElts pit)
           insertTokens tokenKeys
           insertComments (concat $ Map.elems ghcComments)
           eof <- query $ do tok <- select tokens

@@ -7,6 +7,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TupleSections #-}
 module Language.Haskell.Heed.Export.Utilities where
 
 import GHC
@@ -27,6 +28,7 @@ import RnExpr
 import ErrUtils
 import TcRnMonad
 import DynFlags
+import Avail
 import Language.Haskell.TH.LanguageExtensions
 
 import System.Directory
@@ -198,18 +200,20 @@ doWriteName sp name scope = do
       namespace = occNameSpace $ nameOccName name
       nameStr = occNameString $ nameOccName name
       nsRecord = showSDocUnsafe (pprNameSpace namespace)
+      mod = case nameModule_maybe name of Just nm -> moduleNameString (moduleName nm)
+                                          Nothing -> moduleNameString (moduleName cm)
   when defining
-    $ liftSelda $ insert_ definitions [ Nothing :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq ]
+    $ liftSelda $ insert_ definitions [ Nothing :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: Nothing ]
   liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining ]
 
 writeModImports :: [LImportDecl n] -> TrfType ()
 writeModImports imports = do
   Just sc <- asks scope
-  mods <- liftSelda $ liftGhc $ mapM (\imp -> findModule (unLoc $ ideclName imp) (fmap sl_fs $ ideclPkgQual imp)) (map unLoc imports)
-  modIds <- liftSelda $ concat <$> mapM (\m -> lookupImportedModule (pack $ moduleNameString $ moduleName m) (pack $ show $ moduleUnitId m)) mods
-  liftSelda $ insert_ moduleImports (map (sc :*:) modIds)
+  mods <- liftSelda $ liftGhc $ mapM (\imp -> (ideclQualified imp, maybe (unLoc $ ideclName imp) unLoc (ideclAs imp), ) <$> findModule (unLoc $ ideclName imp) (fmap sl_fs $ ideclPkgQual imp)) (map unLoc imports)
+  modIds <- liftSelda $ concat <$> mapM (\(q,s,m) -> map (q, moduleNameString s, ) <$> lookupImportedModule (pack $ moduleNameString $ moduleName m) (pack $ show $ moduleUnitId m)) mods
+  liftSelda $ insert_ moduleImports (map (\(q,s,m) -> sc :*: m :*: q :*: pack s) modIds)
 
-writeImportedNames :: GHC.Module -> [GHC.Name] -> SeldaT Ghc ()
+writeImportedNames :: GHC.Module -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
 writeImportedNames mod importedNames = do
   modId <- lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
   when (null modId) $ do
@@ -217,11 +221,12 @@ writeImportedNames mod importedNames = do
                                      :*: pack (show $ moduleUnitId mod)
                                      :*: Nothing ]
     insert_ definitions (map (createNameImport id) importedNames)
-  where createNameImport modId name
-          = Just modId :*: Nothing :*: pack (showSDocUnsafe (pprNameSpace namespace)) :*: pack nameStr :*: pack uniq
-          where uniq = createNameUnique mod name
-                namespace = occNameSpace $ nameOccName name
-                nameStr = occNameString $ nameOccName name
+  where createNameImport modId (name, parent)
+          = Just modId :*: Nothing :*: pack (showSDocUnsafe (pprNameSpace (namespace name)))
+               :*: pack (nameStr name) :*: pack (uniq name) :*: fmap (pack . uniq) parent
+          where uniq n = createNameUnique mod n
+                namespace n = occNameSpace $ nameOccName n
+                nameStr n = occNameString $ nameOccName n
 
 writeType :: SrcSpan -> Id -> TrfType ()
 writeType sp id = do

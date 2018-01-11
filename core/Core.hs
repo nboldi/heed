@@ -115,7 +115,7 @@ names = table "names" $ required "name_node" `fk` (nodes, node_id)
     :*: name_uniq
     :*: name_defining ) = selectors names
 
-type Definition = Maybe RowID :*: Maybe RowID :*: Text :*: Text :*: Text
+type Definition = Maybe RowID :*: Maybe RowID :*: Text :*: Text :*: Text :*: Maybe Text
 
 definitions :: Table Definition
 definitions = table "definitions" $ optional "def_module" -- `fk` (modules, module_id)
@@ -123,11 +123,13 @@ definitions = table "definitions" $ optional "def_module" -- `fk` (modules, modu
                                       :*: required "def_namespace"
                                       :*: required "def_str"
                                       :*: required "def_uniq"
+                                      :*: optional "def_parent_uniq"
 ( def_module
     :*: def_scope
     :*: def_namespace
     :*: def_str
-    :*: def_uniq ) = selectors definitions
+    :*: def_uniq
+    :*: def_parent_uniq ) = selectors definitions
 
 type Type = Text :*: Text
 
@@ -171,12 +173,14 @@ scopes = table "scopes" $ autoPrimary "scope_id"
     :*: scope_end_row
     :*: scope_end_col ) = selectors scopes
 
-type ModuleImport = RowID :*: RowID
+type ModuleImport = RowID :*: RowID :*: Bool :*: Text
 
 moduleImports :: Table ModuleImport
 moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, scope_id)
                                           :*: required "mi_module_id" `fk` (modules, module_id)
-( mi_scope_id :*: mi_module_id ) = selectors moduleImports
+                                          :*: required "mi_qualified"
+                                          :*: required "mi_qualifier"
+( mi_scope_id :*: mi_module_id :*: mi_qualified :*: mi_qualifier ) = selectors moduleImports
 
 -- type ModuleImportHiding = RowID :*: RowID
 --

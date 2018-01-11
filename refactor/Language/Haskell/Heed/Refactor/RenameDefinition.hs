@@ -134,6 +134,7 @@ renameUnique newName original uniqs namespace = do
     restrict $ node ! node_id .== occ ! name_node
                  .&& occ ! name_uniq `isIn` map text uniqs
                  .&& not_ (occ ! name_defining)
+                 .&& not_ (mi ! mi_qualified) -- TODO: check for qualified conflicts
     nameInScope node sc
     restrict $ mi ! mi_scope_id .== sc ! scope_id .&& just (mi ! mi_module_id) .== def ! def_module
     restrict $ def ! def_str .== text (pack newName) .&& def ! def_namespace .== text namespace
