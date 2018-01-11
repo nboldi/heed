@@ -61,7 +61,7 @@ instance HsName GHC.Name where
   exportAmbiguous exporter (L l (Unambiguous rdr pr)) = exporter (L l pr)
   exportAmbiguous exporter (L l (Ambiguous rdr _))
     = do sc <- asks scope
-         case sc of Just scope -> tell (ExportStore [ (l, scope) ])
+         case sc of Just scope -> tell (ExportStore [ (l, scope) ] [])
                     Nothing -> return ()
 
 instance HsName Id where

@@ -18,10 +18,7 @@ import Name
 import SrcLoc
 
 exportKindSignature :: HsName n => Exporter (Maybe (LHsKind n))
-exportKindSignature (Just kind)
-  = do def <- asks isDefining
-       liftIO $ putStrLn $ "exportKindSignature : " ++ show (getLoc kind) ++ " " ++ show def
-       export KindSignature (getLoc kind) [ exportKind kind ]
+exportKindSignature (Just kind) = export KindSignature (getLoc kind) [ exportKind kind ]
 exportKindSignature Nothing = return ()
 
 exportKind :: HsName n => Exporter (LHsKind n)

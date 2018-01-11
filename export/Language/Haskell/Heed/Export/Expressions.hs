@@ -118,9 +118,7 @@ exportExpression (L l (HsRnBracketOut br _)) = export BracketE l [ exportBracket
 exportExpression (L l (HsSpliceE qq@(HsQuasiQuote {})))
   = export QuasiQouteE l [ exportQuasiQuotation (L l qq) ]
 exportExpression (L l (HsSpliceE splice)) = export SpliceE l [ exportSplice (L l splice) ]
-
--- trfExpr' (HsProc pat cmdTop) = AST.UProc <$> trfPattern pat <*> trfCmdTop cmdTop
-
+exportExpression (L l (HsProc pat cmdTop)) = export ProcE l [ exportPattern pat, exportCmdTop cmdTop ]
 exportExpression (L l (HsStatic _ expr)) = export StaticE l [ exportExpression expr ]
 exportExpression (L l (HsAppType expr typ))
   = export TypeApplicationE l [ exportExpression expr, exportType (hswc_body typ) ]
@@ -129,28 +127,13 @@ exportExpression (L l (HsAppTypeOut {})) = return () -- compiler generated thing
 exportExpression (L l (HsTcBracketOut {})) = return () -- compiler generated thing
 exportExpression (L l (ExprWithTySigOut {})) = return () -- compiler generated thing
 
+-- TODO: export pragmas as well
+exportExpression (L l (HsSCC _ _ expr)) = exportExpression expr
+exportExpression (L l (HsCoreAnn _ _ expr)) = exportExpression expr
+exportExpression (L l (HsTickPragma _ _ _ expr)) = exportExpression expr
 
--- trfExpr' (HsSCC _ lit expr) = AST.UExprPragma <$> pragma <*> trfExpr expr
---   where pragma = do pragLoc <- tokensLoc [AnnOpen, AnnClose]
---                     focusOn pragLoc $ annContNoSema (AST.USccPragma <$> annLocNoSema (mappend <$> tokenLoc AnnValStr <*> tokenLocBack AnnVal) (trfText' lit))
--- trfExpr' (HsCoreAnn _ lit expr) = AST.UExprPragma <$> pragma <*> trfExpr expr
---   where pragma = do pragLoc <- tokensLoc [AnnOpen, AnnClose]
---                     focusOn pragLoc $ annContNoSema (AST.UCorePragma <$> annLocNoSema (mappend <$> tokenLoc AnnValStr <*> tokenLocBack AnnVal) (trfText' lit))
--- trfExpr' (HsTickPragma _ source _ expr) = AST.UExprPragma <$> pragma <*> trfExpr expr
---   where pragma = do pragLoc <- tokensLoc [AnnOpen, AnnClose]
---                     focusOn pragLoc $ annContNoSema (AST.UGeneratedPragma <$> (trfSourceRange source))
--- trfExpr' (ExplicitSum tag arity expr _)
---   = do sepsBefore <- focusBeforeLoc (srcSpanStart (getLoc expr)) (eachTokenLoc (AnnOpen : replicate (tag - 1) AnnVbar))
---        sepsAfter <- focusAfterLoc (srcSpanEnd (getLoc expr)) (eachTokenLoc (replicate (arity - tag) AnnVbar))
---        let locsBefore = map srcSpanEnd $ init sepsBefore
---            locsAfter = map srcSpanEnd sepsAfter
---        AST.UUnboxedSum <$> makeList " | " (after AnnOpen) (mapM makePlaceholder locsBefore)
---                        <*> trfExpr expr
---                        <*> makeList " | " (before AnnClose) (mapM makePlaceholder locsAfter)
---   where makePlaceholder l = annLocNoSema (pure (srcLocSpan l)) (pure AST.UUnboxedSumPlaceHolder)
--- trfExpr' EWildPat = return AST.UHole
--- trfExpr' t = unhandledElement "expression" t
---
+exportExpression (L l (ExplicitSum _ _ expr _)) = export UnboxedSumE l [ exportExpression expr ]
+exportExpression (L l EWildPat) = export WildPatE l []--
 exportExpression (L l (HsWrap _ expr)) = exportExpression (L l expr)
 exportExpression (L l expr) = exportError "expression" expr
 
@@ -159,8 +142,6 @@ cleanExpr (L l (HsWrap _ expr)) = L l expr
 cleanExpr expr = expr
 
 exportFieldInits :: HsName n => Exporter (Located (HsRecFields n (LHsExpr n)))
--- TODO: implicit field info
--- (createImplicitFldInfo (unLoc . (\(HsVar n) -> n) . unLoc) (map unLoc implicitFlds))
 exportFieldInits (L l (HsRecFields fields dotdot))
   = export FieldUpdates l [ mapM_ exportFieldInit normalFlds
                           , do maybe (return ()) (\_ -> export FieldWildcard noSrcSpan []) dotdot
@@ -177,44 +158,31 @@ exportFieldUpdate :: HsName n => Exporter (Located (HsRecField' (AmbiguousFieldO
 exportFieldUpdate (L l (HsRecField lbl _ True)) = export FieldPun l [ exportAmbiguous exportName lbl ]
 exportFieldUpdate (L l (HsRecField lbl val False))
   = export NormalFieldUpdate l [ exportAmbiguous exportName lbl, exportExpression val ]
---
--- trfCmdTop :: TransformName n r => Located (HsCmdTop n) -> Trf (Ann AST.UCmd (Dom r) RangeStage)
--- trfCmdTop (L _ (HsCmdTop cmd _ _ _)) = trfCmd cmd
---
--- trfCmd :: TransformName n r => Located (HsCmd n) -> Trf (Ann AST.UCmd (Dom r) RangeStage)
--- trfCmd = trfLocNoSema trfCmd'
---
--- trfCmd' :: TransformName n r => HsCmd n -> Trf (AST.UCmd (Dom r) RangeStage)
--- trfCmd' (HsCmdArrApp left right _ typ dir) = AST.UArrowAppCmd <$> trfExpr left <*> op <*> trfExpr right
---   where op = case (typ, dir) of (HsFirstOrderApp, False) -> annLocNoSema (tokenLoc Annrarrowtail) (pure AST.URightAppl)
---                                 (HsFirstOrderApp, True) -> annLocNoSema (tokenLoc Annlarrowtail) (pure AST.ULeftAppl)
---                                 (HsHigherOrderApp, False) -> annLocNoSema (tokenLoc AnnRarrowtail) (pure AST.URightHighApp)
---                                 (HsHigherOrderApp, True) -> annLocNoSema (tokenLoc AnnLarrowtail) (pure AST.ULeftHighApp)
---                                                                        -- FIXME: needs a before
--- trfCmd' (HsCmdArrForm expr _ _ cmds) = AST.UArrowFormCmd <$> trfExpr expr <*> makeList " " (before AnnClose) (mapM trfCmdTop cmds)
--- trfCmd' (HsCmdApp cmd expr) = AST.UAppCmd <$> trfCmd cmd <*> trfExpr expr
--- trfCmd' (HsCmdLam (MG (unLoc -> [unLoc -> Match _ pats _ (GRHSs [unLoc -> GRHS [] body] _)]) _ _ _))
---   = AST.ULambdaCmd <$> (makeNonemptyList " " $ mapM trfPattern pats) <*> trfCmd body
--- trfCmd' (HsCmdPar cmd) = AST.UParenCmd <$> trfCmd cmd
--- trfCmd' (HsCmdCase expr (MG (unLoc -> alts) _ _ _))
---   = AST.UCaseCmd <$> trfExpr expr <*> makeNonemptyIndentedList (mapM (trfLocNoSema (gTrfAlt' trfCmd)) alts)
--- trfCmd' (HsCmdIf _ pred thenExpr elseExpr) = AST.UIfCmd <$> trfExpr pred <*> trfCmd thenExpr <*> trfCmd elseExpr
--- trfCmd' (HsCmdLet (unLoc -> binds) cmd) = addToScope binds (AST.ULetCmd <$> trfLocalBinds AnnLet binds <*> trfCmd cmd)
--- trfCmd' (HsCmdDo (unLoc -> stmts) _) = AST.UDoCmd <$> makeNonemptyIndentedList (mapM (trfLocNoSema (gTrfDoStmt' trfCmd)) stmts)
--- -- | TODO: implement
--- trfCmd' (HsCmdLam {}) = convertionProblem "trfCmd': cmd lambda not supported yet"
--- trfCmd' (HsCmdWrap {}) = convertionProblem "trfCmd': cmd wrap not supported yet"
---
--- trfText' :: StringLiteral -> Trf (AST.UStringNode (Dom r) RangeStage)
--- trfText' = pure . AST.UStringNode . unpackFS . sl_fs
---
--- trfSourceRange :: (StringLiteral, (Int, Int), (Int, Int)) -> Trf (Ann AST.USourceRange (Dom r) RangeStage)
--- trfSourceRange (fileName, (startRow, startCol), (endRow, endCol))
---   = do fnLoc <- tokenLoc AnnValStr
---        [srLoc, scLoc, erLoc, ecLoc] <- allTokenLoc AnnVal
---        annLocNoSema (pure (fnLoc `combineSrcSpans` ecLoc))
---          (AST.USourceRange <$> annLocNoSema (pure fnLoc) (trfText' fileName)
---                            <*> annLocNoSema (pure srLoc) (pure $ AST.Number $ fromIntegral startRow)
---                            <*> annLocNoSema (pure scLoc) (pure $ AST.Number $ fromIntegral startCol)
---                            <*> annLocNoSema (pure erLoc) (pure $ AST.Number $ fromIntegral endRow)
---                            <*> annLocNoSema (pure ecLoc) (pure $ AST.Number $ fromIntegral endCol))
+
+-- * Export commands
+
+exportCmdTop :: HsName n => Exporter (Located (HsCmdTop n))
+exportCmdTop (L _ (HsCmdTop cmd _ _ _)) = exportCmd cmd
+
+exportCmd :: HsName n => Exporter (Located (HsCmd n))
+exportCmd (L l (HsCmdArrApp left right _ typ dir))
+  = export ArrowAppCmd l [ exportExpression left, export arrow l [], exportExpression right ]
+  where arrow = case (typ, dir) of (HsFirstOrderApp, False) -> RightApp
+                                   (HsFirstOrderApp, True) -> LeftApp
+                                   (HsHigherOrderApp, False) -> RightHighApp
+                                   (HsHigherOrderApp, True) -> LeftHighApp
+exportCmd (L l (HsCmdArrForm expr _ _ cmds))
+  = export ArrowFormCmd l [ exportExpression expr, mapM_ exportCmdTop cmds ]
+exportCmd (L l (HsCmdApp cmd expr)) = export AppCmd l [ exportCmd cmd, exportExpression expr ]
+exportCmd (L l (HsCmdLam (MG (unLoc -> [unLoc -> Match _ pats _ (GRHSs [unLoc -> GRHS [] body] _)]) _ _ _)))
+  = addToScope l $ export LambdaCmd l [ mapM_ exportPattern pats, exportCmd body ]
+exportCmd (L l (HsCmdPar cmd)) = export ParenCmd l [ exportCmd cmd ]
+exportCmd (L l (HsCmdCase expr (MG (unLoc -> alts) _ _ _)))
+  = export CaseCmd l [ exportExpression expr, mapM_ (gExportMatch exportCmd) alts ]
+exportCmd (L l (HsCmdIf _ pred thenExpr elseExpr))
+  = export IfCmd l [ exportExpression pred, exportCmd thenExpr, exportCmd elseExpr ]
+exportCmd (L l (HsCmdLet binds cmd))
+  = addToScope l $ export LetCmd l [ exportLocalBinds binds, exportCmd cmd ]
+exportCmd (L l (HsCmdDo (unLoc -> stmts) _))
+  = export DoCmd l [ scopedSequence (exportDoStatement exportCmd) stmts ]
+exportCmd (L l cmd) = exportError "command" cmd

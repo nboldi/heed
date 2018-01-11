@@ -49,8 +49,11 @@ exportBinding (L l b@(AbsBinds {})) = mapM_ exportBinding (abs_binds b)
 exportBinding (L l b@(AbsBindsSig {})) = exportBinding (abs_sig_bind b)
 exportBinding (L l bind) = exportError "binding" bind --  Pattern synonym bindings should be recognized on the declaration level
 
-exportMatch :: forall n . HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
-exportMatch (L l (GHC.Match id pats _ (GRHSs rhss locBinds))) = do
+exportMatch :: HsName n => Exporter (Located (GHC.Match n (LHsExpr n)))
+exportMatch = gExportMatch exportExpression
+
+gExportMatch :: forall n e . HsName n => Exporter e -> Exporter (Located (GHC.Match n e))
+gExportMatch exportExpr (L l (GHC.Match id pats _ (GRHSs rhss locBinds))) = do
   node <- writeInsert Match l
   defining $ goInto node 1
     $ case id of FunRhs name GHC.Prefix _ -> exportNameOrRdrName @n exportName name
@@ -58,13 +61,16 @@ exportMatch (L l (GHC.Match id pats _ (GRHSs rhss locBinds))) = do
                  _                        -> return ()
   addToScope (combineLocated pats) $ do
     goInto node 2 $ mapM_ exportPattern pats
-    goInto node 3 $ mapM_ exportRhss rhss
+    goInto node 3 $ mapM_ (gExportRhss exportExpr) rhss
     goInto node 4 $ exportLocalBinds locBinds
 
 exportRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
-exportRhss (L l (GRHS [] body)) = export UnguardedRhs l [ exportExpression body ]
-exportRhss (L l (GRHS guards body)) = export GuardedRhss l [ scopedSequence exportRhsGuard guards
-                                                           , exportExpression body ]
+exportRhss = gExportRhss exportExpression
+
+gExportRhss :: HsName n => Exporter e -> Exporter (Located (GRHS n e))
+gExportRhss exportExpr (L l (GRHS [] body)) = export UnguardedRhs l [ exportExpr body ]
+gExportRhss exportExpr (L l (GRHS guards body)) = export GuardedRhss l [ scopedSequence exportRhsGuard guards
+                                                                       , exportExpr body ]
 
 exportRhsGuard :: HsName n => Exporter (LStmt n (LHsExpr n))
 exportRhsGuard (L l (BindStmt pat body _ _ _))

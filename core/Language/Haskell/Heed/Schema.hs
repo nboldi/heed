@@ -34,7 +34,7 @@ data Expression = VarE | InfixAppE | LiteralE | LambdaE | LambdaCaseE | AppE | P
                 | UnboxedTupleSectionE | IfE | MultiIfE | LetE | ListE | ParallelArrayE
                 | RecordConstructE | RecordUpdateE | TypedE | EnumE | ParallelArrayEnumE
                 | BracketE | QuasiQouteE | SpliceE | StaticE | TypeApplicationE | DoE | MDoE
-                | ListCompE | ParallelArrayCompE
+                | ListCompE | ParallelArrayCompE | UnboxedSumE | WildPatE | ProcE
   deriving Data
 
 
@@ -217,6 +217,12 @@ data IESpec = IESpec deriving Data
 
 data IESubSpec = IESubspecAll | IESubspecList deriving Data
 
+data Command = ArrowAppCmd | ArrowFormCmd | AppCmd | LambdaCmd | CaseCmd | ParenCmd | IfCmd | LetCmd
+             | DoCmd
+  deriving Data
+
+data Arrow = RightApp | LeftApp | RightHighApp | LeftHighApp deriving Data
+
 -- generate indexed instances for Schema
 $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                                    typeId _ = $(return $ TH.LitE $ TH.IntegerL i) |])
@@ -235,5 +241,6 @@ $( concat <$> mapM (\(i,t) -> [d| instance Schema $(return $ TH.ConT t) where
                 , ''Overlap, ''Role, ''InstanceElement, ''InjectivityAnnot, ''TopLevelPragma
                 , ''RewriteRule, ''RuleVar, ''ModuleName, ''ImportDecl, ''ImportSafe, ''ImportSource
                 , ''ImportQualified, ''ExportSpec, ''ImportSpec, ''IESpec, ''IESubSpec, ''FieldPatterns
+                , ''Command, ''Arrow
                 ])
  )

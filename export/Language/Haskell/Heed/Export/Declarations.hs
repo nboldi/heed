@@ -26,6 +26,7 @@ import TyCon as GHC
 import HsSyn
 import SrcLoc
 import Class
+import Outputable
 
 import Control.Monad.IO.Class
 
@@ -66,7 +67,7 @@ exportDeclaration (L l (SigD (CompleteMatchSig _ (L _ names) typeConstraint)))
 exportDeclaration (L l (SigD s)) = exportError "declaration (signature)" s
 
 exportDeclaration (L l (TyClD (SynDecl name vars _ rhs _)))
-  = export TypeSynonymD l [ exportName name, mapM_ exportTypeVar (hsq_explicit vars), exportType rhs ]
+  = export TypeSynonymD l [ exportName name, mapM_ exportTypeVar (hsq_explicit vars), exportType (cleanHsType rhs) ]
 exportDeclaration (L l (TyClD (DataDecl name vars _ (HsDataDefn nd ctx _ kind cons derivs) _ _)))
   | all (isNormalCons . unLoc) cons
   = do case hsGetNames name of tn:_ -> writeCtors tn (concatMap (hsGetNames . con_name . unLoc) cons)
@@ -171,21 +172,18 @@ exportConstructor (L l (ConDeclH98 { con_name = name, con_qvars = tyVars, con_cx
 exportGADTConstructor :: HsName n => Exporter (Located (ConDecl n))
 exportGADTConstructor (L l (ConDeclGADT { con_names = names, con_type = hsib_body -> typ }))
   = do let (vars, ctx, t) = getTypeVarsAndCtx typ
-       -- forM_ names $ \n ->
-       --   case hsGetNames n of tn:_ -> writeFields tn (concatMap (concatMap hsGetNames . cd_fld_names . unLoc) flds)
-       --                        _    -> return ()
        export GADTConstructor l [ defining (mapM_ exportName names)
                                 , mapM_ exportTypeVar vars
                                 , exportContext ctx
                                 , exportGADTConType t ]
-  where getTypeVarsAndCtx :: LHsType n -> ([LHsTyVarBndr n], LHsContext n, LHsType n)
+  where getTypeVarsAndCtx :: HsName n => LHsType n -> ([LHsTyVarBndr n], LHsContext n, LHsType n)
         getTypeVarsAndCtx (L _ (HsForAllTy [] typ)) = getTypeVarsAndCtx typ
         getTypeVarsAndCtx (L _ (HsForAllTy bndrs typ)) = let (_,ctx,t) = getTypeVarsAndCtx typ in (bndrs, ctx, t)
         getTypeVarsAndCtx (L _ (HsQualTy ctx typ)) = let (vars,_,t) = getTypeVarsAndCtx typ in (vars, ctx, t)
         getTypeVarsAndCtx t = ([], L noSrcSpan [], t)
 
         exportGADTConType :: HsName n => Exporter (Located (HsType n))
-        exportGADTConType (L l (HsFunTy (L rl (HsRecTy flds)) resType))
+        exportGADTConType (L l (HsFunTy (cleanHsType -> L rl (HsRecTy flds)) resType))
           = export GADTRecordType l [ mapM_ exportFieldDecl flds, exportType resType ]
         exportGADTConType typ = export GADTNormalType (getLoc typ) [ exportType typ ]
 

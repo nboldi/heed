@@ -9,29 +9,35 @@ import Language.Haskell.Heed.Export.Declarations
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Schema
 
+import Control.Monad.IO.Class
+import Control.Monad.Writer
 import HsExpr
 import FastString
 import SrcLoc
 
 exportSplice :: HsName n => Exporter (Located (HsSplice n))
 exportSplice spl = do exportSplice' spl
+                      tell (ExportStore [] [getLoc spl])
                       maybe (return ()) (forceNameExport . exportSplice') =<< (renameSplice spl)
 
 exportSplice' :: HsName n => Exporter (Located (HsSplice n))
 exportSplice' (L l (HsTypedSplice _ _ expr)) = export Splice l [ exportExpression expr ]
 exportSplice' (L l (HsUntypedSplice _ _ expr)) = export Splice l [ exportExpression expr ]
-
+exportSplice' (L l sp@(HsSpliced _ (HsSplicedExpr expr))) = export Splice l [ exportExpression (L l expr) ]
+exportSplice' (L l sp@(HsSpliced _ (HsSplicedTy t))) = export Splice l [ exportType (L l t) ]
+exportSplice' (L l sp@(HsSpliced _ (HsSplicedPat p))) = export Splice l [ exportPattern (L l p) ]
 exportSplice' (L l sp@(HsQuasiQuote{})) = exportError "splice" sp -- should be exported with 'exportQuasiQuotation'
-exportSplice' (L l sp@(HsSpliced{})) = exportError "splice" sp -- TODO: export this
 
 exportQuasiQuotation :: HsName n => Exporter (Located (HsSplice n))
 exportQuasiQuotation qq@(L l (HsQuasiQuote _ id l' str))
-  = export QuasiQuotation l [ exportName (L l' id), writeStringAttribute (unpackFS str) ]
-      >> (maybe (return ()) (forceNameExport . exportQuasiQuotation) =<< (renameSplice qq))
+  = do export QuasiQuotation l [ exportName (L l' id), writeStringAttribute (unpackFS str) ]
+       tell (ExportStore [] [l])
+       (maybe (return ()) (forceNameExport . exportQuasiQuotation) =<< (renameSplice qq))
 exportQuasiQuotation (L l qq) = exportError "quasi quotation" qq
 
 exportBracket :: HsName n => Exporter (Located (HsBracket n))
 exportBracket br = do exportBracket' br
+                      tell (ExportStore [] [getLoc br])
                       maybe (return ()) (forceNameExport . exportBracket') =<< (renameBracket br)
 
 exportBracket' :: HsName n => Exporter (Located (HsBracket n))
