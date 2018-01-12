@@ -1,7 +1,6 @@
 sqlite-tools-win32-x86-3210000
 *.hi
 *.o
-*.dll
 *.db
 **/.stack-work
 **/dist
