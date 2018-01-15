@@ -58,7 +58,7 @@ exportModSummary db ms = withSQLite db $ do
       tokenKeys = Map.assocs ghcTokens
   t <- liftGhc $ typecheckModule p
   transaction $ do
-    removeModuleFromDB ms
+    -- removeModuleFromDB ms
     do sess <- lift getSession
        eps <- liftIO $ hscEPS sess
        let pit = eps_PIT eps
@@ -88,13 +88,13 @@ updateImported f m avails
        modIds <- lookupImportedModule (pack $ moduleNameString $ moduleName (mi_module m)) (pack $ show $ moduleUnitId (mi_module m))
        (mId :*: hash')
          <- if (null modIds)
-              then (:*: Nothing) <$> insertWithPK modules [ def :*: pack (moduleNameString $ moduleName mod)
+              then do (:*: Nothing) <$> insertWithPK modules [ def :*: pack (moduleNameString $ moduleName mod)
                                                          :*: pack (show $ moduleUnitId mod)
                                                          :*: Nothing
                                                          :*: Just hash ]
               else return $ head modIds
        when (Just hash /= hash') $ do
-         writeImportedNames (mi_module m) (concatMap (\a -> map (availToPair a) $ f a) avails)
+         writeImportedNames (mi_module m) mId (concatMap (\a -> map (availToPair a) $ f a) avails)
          update_ modules (\m -> m ! module_id .== literal mId) (\m -> m `with` [module_hash := just (text hash)])
   where availToPair a n = if n == availName a then (n, Nothing) else (n, Just $ availName a)
 

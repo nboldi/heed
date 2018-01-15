@@ -1,15 +1,17 @@
 module Main where
 
+import GHC.Paths
+import System.Process
 import System.Environment
-import Language.Haskell.Heed.Export.Export
+import System.Exit
+import Data.List
 
-main :: IO ()
-main = do args <- getArgs
-          case args of "no-export":db:root:mn:_ -> exportSrcFile db root mn False
-                       "no-export":db:mn:_      -> exportSrcFile db "." mn False
-                       db:root:mn:_             -> exportSrcFile db root mn True
-                       db:mn:_                  -> exportSrcFile db "." mn True
-                       _ -> error "export arguments: 'no-export'?, db file, root?, module name"
-
-
-
+main = do
+  args <- getArgs
+  case partition isDisabledArg args of
+    (filtered, passed) -> do
+      let ghcExe = maybe ghc (drop (length ugOpt)) (find (ugOpt `isPrefixOf`) filtered)
+      callProcess ghcExe (passed ++ [ "--frontend", "Language.Haskell.Heed.Export.Plugin" ])
+  where isDisabledArg e = e `elem` ["--make", "--interactive", "--print-libdir"]
+                            || ugOpt `isPrefixOf` e
+        ugOpt = "--use-ghc="

@@ -51,12 +51,16 @@ exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (unLoc . cleanE
   = export LeftSectionE l [ exportExpression expr, exportOperator op ]
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (L l' (HsRecFld op)))))
   = export LeftSectionE l [ exportExpression expr, exportAmbiguous exportOperator (L l' op) ]
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr (unLoc . cleanExpr -> HsConLikeOut {}))))
+  = exportExpression expr
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionL expr right)))
   = exportError "right section expression" (unLoc (cleanExpr right))
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (unLoc . cleanExpr -> HsVar op) expr)))
   = export RightSectionE l [ exportOperator op, exportExpression expr ]
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (L l' (HsRecFld op)) expr)))
   = export RightSectionE l [ exportAmbiguous exportOperator (L l' op), exportExpression expr ]
+exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR (unLoc . cleanExpr -> HsConLikeOut {}) expr)))
+  = exportExpression expr
 exportExpression (L l (HsPar (unLoc . cleanExpr -> SectionR left expr)))
   = exportError "left section expression" (unLoc (cleanExpr left))
 exportExpression (L l (HsPar expr)) = export ParenE l [ exportExpression expr ]

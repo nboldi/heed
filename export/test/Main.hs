@@ -15,7 +15,7 @@ languageTestsCases
       ]
 
 checkExport :: String -> IO ()
-checkExport modName = exportSrcFile "examples" modName True
+checkExport modName = exportSrcFile "test.db" "examples" modName True
 
 languageTests =
   [ "Decl.AmbiguousFields"

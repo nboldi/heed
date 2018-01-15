@@ -247,9 +247,8 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
                 :*: listToMaybe importNode ]
     _ -> return ()
 
-writeImportedNames :: GHC.Module -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
-writeImportedNames mod importedNames = do
-  (modId :*: _) <- lookupOneModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
+writeImportedNames :: GHC.Module -> RowID -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
+writeImportedNames mod modId importedNames = do
   insert_ definitions (map (createNameImport modId) importedNames)
   where createNameImport modId (name, parent)
           = Just modId :*: Nothing :*: pack (showSDocUnsafe (pprNameSpace (namespace name)))

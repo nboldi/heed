@@ -13,6 +13,7 @@ import Data.Maybe
 import Data.IORef
 import Control.Monad.IO.Class
 import Outputable
+import ErrUtils
 import System.Exit
 import Data.List
 import DriverPhases
@@ -23,11 +24,11 @@ frontendPlugin = defaultFrontendPlugin { frontend = pluginAction }
 
 pluginAction :: [CommandLineOption] -> [(String, Maybe Phase)] -> Ghc ()
 pluginAction pluginArgs args = do
+  df <- getDynFlags
   case pluginArgs of
     [dbPath] -> do
-      dflags0 <- getDynFlags
       -- NB: frontend plugin defaults to OneShot
-      _ <- GHC.setSessionDynFlags dflags0 { ghcMode = CompManager }
+      _ <- GHC.setSessionDynFlags df { ghcMode = CompManager }
       dflags <- getDynFlags
       let (hs_srcs, non_hs_srcs) = partition isHaskellishTarget args
       targets <- mapM (uncurry GHC.guessTarget) hs_srcs
@@ -36,8 +37,8 @@ pluginAction pluginArgs args = do
       ok_flag <- load' LoadAllTargets (Just (exportMessager dbPath)) mod_graph
       when (failed ok_flag) (liftIO $ exitWith (ExitFailure 1))
     _ -> liftIO $ do
-      putStrLn $ "The frontend plugin Language.Haskell.Heed.Export.Plugin needs 1 argument, the filepath of "
-                    ++ " the database file to use. Please use -ffrontend-opt to provide this parameter."
+      errorMsg df (text $ "The frontend plugin Language.Haskell.Heed.Export.Plugin needs 1 argument, the filepath of "
+                            ++ " the database file to use. Please use -ffrontend-opt to provide this parameter.")
       exitWith (ExitFailure 1)
 
 exportMessager :: FilePath -> Messager
