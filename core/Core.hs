@@ -90,14 +90,15 @@ attributes = table "attributes" $ required "container"
     :*: integer_attribute
     :*: fractional_attribute ) = selectors attributes
 
-type Module = RowID :*: Text :*: Text :*: Maybe Text
+type Module = RowID :*: Text :*: Text :*: Maybe Text :*: Maybe Text
 
 modules :: Table Module
 modules = table "modules" $ autoPrimary "module_id"
                               :*: required "module_name"
                               :*: required "package_name"
                               :*: optional "module_source"
-(module_id :*: module_name :*: module_package :*: module_source) = selectors modules
+                              :*: optional "module_hash"
+(module_id :*: module_name :*: module_package :*: module_source :*: module_hash) = selectors modules
 
 -- * Semantic information
 
@@ -134,7 +135,7 @@ definitions = table "definitions" $ optional "def_module" -- `fk` (modules, modu
 type Type = Text :*: Text
 
 types :: Table Type
-types = table "types" $ required "type_name" -- `fk` (names, name_uniq)
+types = table "types" $ required "type_name"
                           :*: required "type_desc"
 ( type_name :*: type_desc ) = selectors types
 
@@ -161,11 +162,11 @@ type Scope = RowID :*: Text :*: Int :*: Int :*: Int :*: Int
 
 scopes :: Table Scope
 scopes = table "scopes" $ autoPrimary "scope_id"
-                           :*: required "file"
-                           :*: required "start_row"
-                           :*: required "start_col"
-                           :*: required "end_row"
-                           :*: required "end_col"
+                           :*: required "scope_file"
+                           :*: required "scope_start_row"
+                           :*: required "scope_start_col"
+                           :*: required "scope_end_row"
+                           :*: required "scope_end_col"
 ( scope_id
     :*: scope_file
     :*: scope_start_row
@@ -181,7 +182,7 @@ moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, sc
                                           :*: required "mi_qualified"
                                           :*: required "mi_just_listed"
                                           :*: required "mi_qualifier"
-                                          :*: optional "mi_node"
+                                          :*: optional "mi_node" -- `fkOpt` (nodes, node_id)
 ( mi_scope_id :*: mi_module_id :*: mi_qualified :*: mi_just_listed :*: mi_qualifier :*: mi_node )
   = selectors moduleImports
 

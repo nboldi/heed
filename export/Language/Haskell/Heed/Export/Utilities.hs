@@ -177,11 +177,16 @@ lookupNode types = prepared $ \file start_row start_col -> do
               .&& n ! node_type `isIn` (map int types)
   return (n ! node_id)
 
-lookupImportedModule :: Text -> Text -> SeldaT Ghc [RowID]
+lookupImportedModule :: Text -> Text -> SeldaT Ghc [RowID :*: Maybe Text]
 lookupImportedModule = prepared $ \mod pkg -> do
-  (id :*: name :*: package :*: _) <- select modules
+  (id :*: name :*: package :*: _ :*: hash) <- select modules
   restrict $ mod .== name .&& pkg .== package
-  return id
+  return (id :*: hash)
+
+lookupOneModule :: Text -> Text -> SeldaT Ghc (RowID :*: Maybe Text)
+lookupOneModule mod pkg = do res <- lookupImportedModule mod pkg
+                             case res of [m] -> return m
+                                         _ -> error $ "lookupOneModule: " ++ show mod ++ " " ++ show pkg
 
 writeModule :: TrfType ()
 writeModule = do
@@ -190,7 +195,8 @@ writeModule = do
   sourcePath <- liftIO $ makeAbsolute (msHsFilePath ms)
   liftSelda $ insert_ modules [ def :*: pack (moduleNameString $ moduleName mod)
                                     :*: pack (show $ moduleUnitId mod)
-                                    :*: Just (pack sourcePath) ]
+                                    :*: Just (pack sourcePath)
+                                    :*: Nothing ]
 
 writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
@@ -233,7 +239,7 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
     ([n], Just (True, h)) -> liftSelda $ insert_ moduleImportHiding (map (trfLie n) (unLoc h))
     ([n], Just (False, h)) -> liftSelda $ insert_ moduleImportShowing (map (trfLie n) (unLoc h))
     _ -> return ()
-  case (sc, modIds) of
+  case (sc, map first modIds) of
     (Just sc, [modId])
       -> liftSelda $ insert_ moduleImports
            [ sc :*: modId :*: qual :*: maybe False (not . fst) hiding
@@ -243,12 +249,8 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
 
 writeImportedNames :: GHC.Module -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
 writeImportedNames mod importedNames = do
-  modId <- lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
-  when (null modId) $ do
-    id <- insertWithPK modules [ def :*: pack (moduleNameString $ moduleName mod)
-                                     :*: pack (show $ moduleUnitId mod)
-                                     :*: Nothing ]
-    insert_ definitions (map (createNameImport id) importedNames)
+  (modId :*: _) <- lookupOneModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
+  insert_ definitions (map (createNameImport modId) importedNames)
   where createNameImport modId (name, parent)
           = Just modId :*: Nothing :*: pack (showSDocUnsafe (pprNameSpace (namespace name)))
                :*: pack (nameStr name) :*: pack (uniq name) :*: fmap (pack . uniq) parent
