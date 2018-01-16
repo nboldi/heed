@@ -39,6 +39,7 @@ library
                  , selda
                  , selda-sqlite
                  , bytestring
+                 , split
                  , text
                  , template-haskell
   default-language:    Haskell2010

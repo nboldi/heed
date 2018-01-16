@@ -38,12 +38,11 @@ exportRnModule (gr,imports,exps,_)
 exportModule :: HsName n => Exporter (Located (HsModule n))
 exportModule (L l (HsModule name exports imports decls deprec _))
   -- TODO: process deprec
-  = do writeModule
-       export Schema.Module l [ maybe (return ()) exportModuleName name
-                              , maybe (return ()) (mapM_ (mapM_ exportExportSpec)) exports
-                              , mapM_ exportImportDecl imports
-                              , mapM_ exportDeclaration decls
-                              ]
+  = export Schema.Module l [ maybe (return ()) exportModuleName name
+                           , maybe (return ()) (mapM_ (mapM_ exportExportSpec)) exports
+                           , mapM_ exportImportDecl imports
+                           , mapM_ exportDeclaration decls
+                           ]
 
 exportExportSpec :: HsName n => Exporter (LIE n)
 exportExportSpec (L l (IEModuleContents mn)) = export ModuleExport l [ exportModuleName mn ]

@@ -16,6 +16,7 @@ import Outputable hiding (text, int)
 import Name
 import Id
 import SrcLoc
+import qualified Outputable
 import Outputable (Outputable(..), OutputableBndr)
 import Bag
 import HscTypes
@@ -51,6 +52,7 @@ data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , compiledModule :: ModSummary
                                , isDefining :: Bool
                                , scope :: Maybe RowID
+                               , moduleID :: RowID
                                , ambiguousNames :: [(SrcSpan, RowID)]
                                , skippedRanges :: [SrcSpan]
                                , moduleRange :: SrcSpan
@@ -72,9 +74,9 @@ data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 liftSelda :: SeldaT Ghc a -> TrfType a
 liftSelda = lift . lift
 
-initExportState :: ModSummary -> SrcSpan -> ExportStore -> ExportStage -> Maybe TcGblEnv -> ExportState
-initExportState mod loc (ExportStore amb skip) stage gblEnv
-  = ExportState Nothing stage False mod False Nothing amb skip loc gblEnv
+initExportState :: ModSummary -> SrcSpan -> ExportStore -> RowID -> ExportStage -> Maybe TcGblEnv -> ExportState
+initExportState mod loc (ExportStore amb skip) ri stage gblEnv
+  = ExportState Nothing stage False mod False Nothing ri amb skip loc gblEnv
 
 type TrfType = ReaderT ExportState (WriterT ExportStore (SeldaT Ghc))
 
@@ -140,11 +142,13 @@ writeInsert ctor loc = do
 writeInsert' :: Schema s => s -> SrcSpan -> TrfType RowID
 writeInsert' ctor loc = do
   parentRef <- asks parentData
+  m <- asks moduleID
   let (file, start_row, start_col, end_row, end_col) = spanData loc
   liftSelda $ insertWithPK nodes [ def :*: fmap fst parentRef :*: typeId ctor
                                      :*: constrIndex (toConstr ctor) :*: pack file
                                      :*: start_row :*: start_col :*: end_row :*: end_col
-                                     :*: fmap snd parentRef ]
+                                     :*: fmap snd parentRef
+                                     :*: m ]
 
 writeIntAttribute :: Int -> TrfType ()
 writeIntAttribute i = writeAttribute (Nothing :*: Just i :*: Nothing)
@@ -161,8 +165,10 @@ writeFractionalAttribute f = writeAttribute (Nothing :*: Nothing :*: Just f)
 writeAttribute :: ( Maybe Text :*: Maybe Int :*: Maybe Double ) -> TrfType ()
 writeAttribute d = do
   pd <- asks parentData
+  m <- asks moduleID
   case pd of
-    Just (parentId, parentRef) -> liftSelda $ insert_ attributes [ parentId :*: parentRef :*: d ]
+    Just (parentId, parentRef) -> do
+      liftSelda $ insert_ attributes [ parentId :*: parentRef :*: m :*: d ]
     Nothing -> return () -- not in export-syntax mode
 
 lookupNameNode :: Text -> Int -> Int -> SeldaT Ghc [RowID]
@@ -183,20 +189,14 @@ lookupImportedModule = prepared $ \mod pkg -> do
   restrict $ mod .== name .&& pkg .== package
   return (id :*: hash)
 
-lookupOneModule :: Text -> Text -> SeldaT Ghc (RowID :*: Maybe Text)
-lookupOneModule mod pkg = do res <- lookupImportedModule mod pkg
-                             case res of [m] -> return m
-                                         _ -> error $ "lookupOneModule: " ++ show mod ++ " " ++ show pkg
-
-writeModule :: TrfType ()
-writeModule = do
-  ms <- asks compiledModule
+writeModule :: ModSummary -> SeldaT Ghc RowID
+writeModule ms = do
   let mod = ms_mod ms
   sourcePath <- liftIO $ makeAbsolute (msHsFilePath ms)
-  liftSelda $ insert_ modules [ def :*: pack (moduleNameString $ moduleName mod)
-                                    :*: pack (show $ moduleUnitId mod)
-                                    :*: Just (pack sourcePath)
-                                    :*: Nothing ]
+  insertWithPK modules [ def :*: pack (moduleNameString $ moduleName mod)
+                           :*: pack (show $ moduleUnitId mod)
+                           :*: Just (pack sourcePath)
+                           :*: Nothing ]
 
 writeName :: SrcSpan -> GHC.Name -> TrfType ()
 writeName sp name = do
@@ -207,6 +207,7 @@ writeName sp name = do
 doWriteName :: SrcSpan -> GHC.Name -> Maybe RowID -> TrfType ()
 doWriteName sp name scope = do
   cm <- asks (ms_mod . compiledModule)
+  m <- asks moduleID
   defining <- asks isDefining
   st <- asks exportStage
   let (file, start_row, start_col, _, _) = spanData sp
@@ -222,18 +223,19 @@ doWriteName sp name scope = do
           mod = case nameModule_maybe name of Just nm -> moduleNameString (moduleName nm)
                                               Nothing -> moduleNameString (moduleName cm)
       when defining
-        $ liftSelda $ insert_ definitions [ Nothing :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: Nothing ]
-      liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining ]
+        $ liftSelda $ insert_ definitions [ Just m :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: Nothing ]
+      liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining :*: m ]
 
 writeModImport :: HsName n => LImportDecl n -> TrfType ()
 writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
   sc <- asks scope
   cm <- asks (ms_mod . compiledModule)
+  m <- asks moduleID
   mod <- liftSelda $ liftGhc $ findModule (unLoc n) (fmap sl_fs pkg)
   modIds <- liftSelda $ lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
   let (file, start_row, start_col, _, _) = spanData l
   importNode <- liftSelda $ lookupNode [ typeId (undefined :: Schema.ImportDecl) ] (pack file) start_row start_col
-  let trfLie n ie = n :*: pack (createNameUnique cm name) :*: pack (occNameString (occName name))
+  let trfLie n ie = n :*: pack (createNameUnique cm name) :*: pack (occNameString (occName name)) :*: m
         where name = head . hsGetNames . ieName . unLoc $ ie
   case (importNode, hiding) of
     ([n], Just (True, h)) -> liftSelda $ insert_ moduleImportHiding (map (trfLie n) (unLoc h))
@@ -244,7 +246,7 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
       -> liftSelda $ insert_ moduleImports
            [ sc :*: modId :*: qual :*: maybe False (not . fst) hiding
                 :*: pack (moduleNameString (maybe (unLoc n) unLoc declAs))
-                :*: listToMaybe importNode ]
+                :*: listToMaybe importNode :*: m ]
     _ -> return ()
 
 writeImportedNames :: GHC.Module -> RowID -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
@@ -260,11 +262,12 @@ writeImportedNames mod modId importedNames = do
 writeType :: SrcSpan -> Id -> TrfType ()
 writeType sp id = do
   cm <- asks (ms_mod . compiledModule)
+  m <- asks moduleID
   let name = idName id
       (file, start_row, start_col, _, _) = spanData sp
       uniq = createNameUnique cm name
   let typeRep = toTypeRep cm (idType id)
-  liftSelda $ insert_ types [ pack uniq :*: pack (show typeRep) ]
+  liftSelda $ insert_ types [ pack uniq :*: pack (show typeRep) :*: m ]
 
 writeImplicitInfo :: (HsName n, HsHasName (FieldOcc n)) => (a -> [GHC.Name]) -> [HsRecField n a] -> TrfType ()
 writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
@@ -275,18 +278,21 @@ writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)
 doWriteImplicitInfo :: [(GHC.Name, GHC.Name)] -> TrfType ()
 doWriteImplicitInfo bindings
   = do mod <- asks (ms_mod . compiledModule)
+       m <- asks moduleID
        liftSelda $ insert_ implicitBinds (map (\(n1,n2) -> pack (createNameUnique mod n1)
-                                                             :*: pack (createNameUnique mod n2)) bindings)
+                                                             :*: pack (createNameUnique mod n2) :*: m) bindings)
 
 writeCtors :: GHC.Name -> [GHC.Name] -> TrfType ()
 writeCtors tn cns = do
   mod <- asks (ms_mod . compiledModule)
-  liftSelda $ insert_ typeCtors (map (\cn -> pack (createNameUnique mod tn) :*: pack (createNameUnique mod cn)) cns)
+  m <- asks moduleID
+  liftSelda $ insert_ typeCtors (map (\cn -> pack (createNameUnique mod tn) :*: pack (createNameUnique mod cn) :*: m) cns)
 
 writeFields :: GHC.Name -> [GHC.Name] -> TrfType ()
 writeFields cn fls = do
   mod <- asks (ms_mod . compiledModule)
-  liftSelda $ insert_ ctorFields (map (\fl -> pack (createNameUnique mod cn) :*: pack (createNameUnique mod fl)) fls)
+  m <- asks moduleID
+  liftSelda $ insert_ ctorFields (map (\fl -> pack (createNameUnique mod cn) :*: pack (createNameUnique mod fl) :*: m) fls)
 
 toTypeRep :: GHC.Module -> GHC.Type -> TypeRepresentation
 toTypeRep mod t
