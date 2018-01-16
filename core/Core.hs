@@ -52,11 +52,11 @@ withForeignCheckTurnedOff act = do
 
 -- * Syntax
 
-type Node = RowID :*: Maybe RowID :*: Int :*: Int :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Int
+type Node = RowID :*: Maybe RowID :*: Int :*: Int :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Int :*: RowID
 
 nodes :: Table Node
 nodes = table "nodes" $ autoPrimary "node_id"
-                          :*: optional "parent_id" -- `fk` (nodes, node_id)
+                          :*: optional "parent_id" `optFk` (nodes, node_id)
                           :*: required "node_type"
                           :*: required "ctor"
                           :*: required "file"
@@ -65,6 +65,7 @@ nodes = table "nodes" $ autoPrimary "node_id"
                           :*: required "end_row"
                           :*: required "end_col"
                           :*: optional "parent_handle"
+                          :*: required "node_module"
 ( node_id
     :*: node_parent
     :*: node_type
@@ -74,18 +75,21 @@ nodes = table "nodes" $ autoPrimary "node_id"
     :*: node_start_col
     :*: node_end_row
     :*: node_end_col
-    :*: parent_handle ) = selectors nodes
+    :*: parent_handle
+    :*: node_module ) = selectors nodes
 
-type Attribute = RowID :*: Int :*: Maybe Text :*: Maybe Int :*: Maybe Double
+type Attribute = RowID :*: Int :*: RowID :*: Maybe Text :*: Maybe Int :*: Maybe Double
 
 attributes :: Table Attribute
-attributes = table "attributes" $ required "container"
+attributes = table "attributes" $ required "container" `fk` (nodes, node_id)
                                     :*: required "attribute_handle"
+                                    :*: required "attribute_module" `fk` (modules, module_id)
                                     :*: optional "text_attribute"
                                     :*: optional "integer_attribute"
                                     :*: optional "fractional_attribute"
 ( container
     :*: attribute_handle
+    :*: attribute_module
     :*: text_attribute
     :*: integer_attribute
     :*: fractional_attribute ) = selectors attributes
@@ -102,7 +106,7 @@ modules = table "modules" $ autoPrimary "module_id"
 
 -- * Semantic information
 
-type Name = RowID :*: Text :*: Text :*: Text :*: Bool
+type Name = RowID :*: Text :*: Text :*: Text :*: Bool :*: RowID
 
 names :: Table Name
 names = table "names" $ required "name_node" `fk` (nodes, node_id)
@@ -110,17 +114,19 @@ names = table "names" $ required "name_node" `fk` (nodes, node_id)
                           :*: required "name_str"
                           :*: required "name_uniq"
                           :*: required "name_defining"
+                          :*: required "name_module" `fk` (modules, module_id)
 ( name_node
     :*: name_namespace
     :*: name_str
     :*: name_uniq
-    :*: name_defining ) = selectors names
+    :*: name_defining
+    :*: name_module ) = selectors names
 
 type Definition = Maybe RowID :*: Maybe RowID :*: Text :*: Text :*: Text :*: Maybe Text
 
 definitions :: Table Definition
-definitions = table "definitions" $ optional "def_module" -- `fk` (modules, module_id)
-                                      :*: optional "def_scope" -- `fk` (scopes, scope_id)
+definitions = table "definitions" $ optional "def_module" `optFk` (modules, module_id)
+                                      :*: optional "def_scope" `optFk` (scopes, scope_id)
                                       :*: required "def_namespace"
                                       :*: required "def_str"
                                       :*: required "def_uniq"
@@ -132,31 +138,38 @@ definitions = table "definitions" $ optional "def_module" -- `fk` (modules, modu
     :*: def_uniq
     :*: def_parent_uniq ) = selectors definitions
 
-type Type = Text :*: Text
+type Type = Text :*: Text :*: RowID
 
 types :: Table Type
 types = table "types" $ required "type_name"
                           :*: required "type_desc"
-( type_name :*: type_desc ) = selectors types
+                          :*: required "type_module" `fk` (modules, module_id)
+( type_name :*: type_desc :*: type_module ) = selectors types
 
-type ImplicitBinds = Text :*: Text
+type ImplicitBinds = Text :*: Text :*: RowID
 
 implicitBinds :: Table ImplicitBinds
 implicitBinds = table "implicit_binds" $ required "imp_bind_lhs"
                                            :*: required "imp_bind_rhs"
-( imp_bind_lhs :*: imp_bind_rhs ) = selectors implicitBinds
+                                           :*: required "imp_bind_module" `fk` (modules, module_id)
+( imp_bind_lhs :*: imp_bind_rhs :*: imp_bind_module ) = selectors implicitBinds
 
-type CtorField = Text :*: Text
+type CtorField = Text :*: Text :*: RowID
 
 ctorFields :: Table CtorField
-ctorFields = table "ctor_fields" $ required "cf_constructor" :*: required "cf_field"
-( cf_constructor :*: cf_field ) = selectors ctorFields
+ctorFields = table "ctor_fields" $ required "cf_constructor"
+                                     :*: required "cf_field"
+                                     :*: required "cf_module" `fk` (modules, module_id)
+( cf_constructor :*: cf_field :*: cf_module ) = selectors ctorFields
+ -- `fk` (modules, module_id)
 
-type TypeCtor = Text :*: Text
+type TypeCtor = Text :*: Text :*: RowID
 
 typeCtors :: Table TypeCtor
-typeCtors = table "type_ctors" $ required "tc_type" :*: required "tc_ctor"
-( ct_type :*: ct_ctor ) = selectors typeCtors
+typeCtors = table "type_ctors" $ required "tc_type"
+                                   :*: required "tc_ctor"
+                                   :*: required "tc_module" `fk` (modules, module_id)
+( ct_type :*: ct_ctor :*: ct_module ) = selectors typeCtors
 
 type Scope = RowID :*: Text :*: Int :*: Int :*: Int :*: Int
 
@@ -174,7 +187,7 @@ scopes = table "scopes" $ autoPrimary "scope_id"
     :*: scope_end_row
     :*: scope_end_col ) = selectors scopes
 
-type ModuleImport = RowID :*: RowID :*: Bool :*: Bool :*: Text :*: Maybe RowID
+type ModuleImport = RowID :*: RowID :*: Bool :*: Bool :*: Text :*: Maybe RowID :*: RowID
 
 moduleImports :: Table ModuleImport
 moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, scope_id)
@@ -182,23 +195,31 @@ moduleImports = table "module_imports" $ required "mi_scope_id" `fk` (scopes, sc
                                           :*: required "mi_qualified"
                                           :*: required "mi_just_listed"
                                           :*: required "mi_qualifier"
-                                          :*: optional "mi_node" -- `fkOpt` (nodes, node_id)
-( mi_scope_id :*: mi_module_id :*: mi_qualified :*: mi_just_listed :*: mi_qualifier :*: mi_node )
-  = selectors moduleImports
+                                          :*: optional "mi_node" `optFk` (nodes, node_id)
+                                          :*: required "mi_contain_module" `fk` (modules, module_id)
+( mi_scope_id
+    :*: mi_module_id
+    :*: mi_qualified
+    :*: mi_just_listed
+    :*: mi_qualifier
+    :*: mi_node
+    :*: mi_contain_module ) = selectors moduleImports
 
-type ModuleImportMod = RowID :*: Text :*: Text
+type ModuleImportMod = RowID :*: Text :*: Text :*: RowID
 
 moduleImportShowing :: Table ModuleImportMod
 moduleImportShowing = table "module_imports_showing" $ required "mis_node"
                                                          :*: required "mis_name"
                                                          :*: required "mis_str"
-( mis_node :*: mis_name :*: mis_str ) = selectors moduleImportShowing
+                                                         :*: required "mis_module" `fk` (modules, module_id)
+( mis_node :*: mis_name :*: mis_str :*: mis_module ) = selectors moduleImportShowing
 
 moduleImportHiding :: Table ModuleImportMod
 moduleImportHiding = table "module_imports_hiding" $ required "mih_node"
                                                        :*: required "mih_name"
                                                        :*: required "mih_str"
-( mih_node :*: mih_name :*: mih_str ) = selectors moduleImportHiding
+                                                       :*: required "mih_module" `fk` (modules, module_id)
+( mih_node :*: mih_name :*: mih_str :*: mih_module ) = selectors moduleImportHiding
 
 -- * Lexical information
 
