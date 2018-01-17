@@ -37,7 +37,7 @@ pluginAction pluginArgs args = do
       ok_flag <- load' LoadAllTargets (Just (exportMessager dbPath)) mod_graph
       when (failed ok_flag) (liftIO $ exitWith (ExitFailure 1))
     _ -> liftIO $ do
-      errorMsg df (text $ "The frontend plugin Language.Haskell.Heed.Export.Plugin needs 1 argument, the filepath of "
+      errorMsg df (text $ "The frontend plugin Language.Haskell.Heed.Export.Plugin needs at least 1 argument, the filepath of "
                             ++ " the database file to use. Please use -ffrontend-opt to provide this parameter.")
       exitWith (ExitFailure 1)
 

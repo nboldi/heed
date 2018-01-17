@@ -8,6 +8,7 @@ packages:
 
 extra-deps:
   - HDBC-sqlite3-2.3.3.1
+  - selda-0.1.12
 
 extra-include-dirs:
   - lib

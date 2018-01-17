@@ -21,7 +21,7 @@ library
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.10 && <4.11
-                     , selda
+                     , selda >=0.1.12
                      , text
                      , exceptions
                      , ghc
