@@ -9,7 +9,7 @@ import SrcLoc
 
 main = do args <- liftIO $ getArgs
           res <- case args of
-            [dbFile, "OrganizeImports"] -> withSQLite dbFile $ organizeImports
+            [dbFile, "OrganizeImports", file] -> withSQLite dbFile $ organizeImports file
             [dbFile, "Rename", file, span, newName] -> withSQLite dbFile $ renameDefinition file span newName
             _ -> error $ "Arguments not valid: " ++ show args
           print res
