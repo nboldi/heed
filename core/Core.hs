@@ -10,6 +10,7 @@ import Control.Exception (throwIO)
 import Control.Monad.Trans.Class
 import Data.Data (Data(..))
 import Data.List
+import Data.List.Split
 import Data.Maybe
 
 import Data.Text (pack)
@@ -286,3 +287,7 @@ compareTypeRep _ (TRNumLit i1) (TRNumLit i2) = i1 == i2
 compareTypeRep _ (TRStringLit s1) (TRStringLit s2) = s1 == s2
 compareTypeRep _ TRCoercion TRCoercion = True
 compareTypeRep _ _ _ = False
+
+tabulate :: Monad m => Int -> ([a] -> [a] -> [a]) -> [b] -> ([b] -> m [a]) -> m [a]
+tabulate n comb inp op = foldl1 comb <$> mapM op chunks
+  where chunks = chunksOf n inp

@@ -26,6 +26,7 @@ library
                      , exceptions
                      , ghc
                      , mtl
+                     , split
                      , transformers
                      , bytestring
                      , template-haskell

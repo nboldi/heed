@@ -20,13 +20,14 @@ import System.IO.Strict (hGetContents)
 import Core
 import Language.Haskell.Heed.Schema
 
-renameDefinition :: String -> String -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
-renameDefinition newName srcSpan = do
+renameDefinition :: String -> String -> String -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
+renameDefinition fileName srcSpan newName = do
   let (stRow, stCol, endRow, endCol) = readSpan srcSpan
   selectedName <- query $ limit 0 1 $ do
     n <- select names
     node <- select nodes
     restrict $ node ! node_id .== n ! name_node
+                .&& node ! node_file `like` text (pack ("%" ++ fileName))
     restrict $ (int stRow .> node ! node_start_row
                   .|| int stRow .== node ! node_start_row .&& int stCol .>= node ! node_start_col)
     restrict $ (node ! node_end_row .> int endRow
@@ -46,8 +47,8 @@ renameDefinition newName srcSpan = do
     _ -> renameModule newName (stRow, stCol, endRow, endCol)
 
 renameUnique :: String -> Text -> [Text] -> Text -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])
-renameUnique newName original uniqs namespace = do
-  renameRanges <- query $ do
+renameUnique newName original uniqNames namespace = do
+  renameRanges <- tabulate 10 (++) uniqNames $ \uniqs -> query $ do
     n <- select names
     nameNode <- select nodes
     unqualNode <- select nodes
@@ -59,12 +60,12 @@ renameUnique newName original uniqs namespace = do
     return ( unqualNode ! node_file :*: unqualNode ! node_start_row :*: unqualNode ! node_start_col
                :*: unqualNode ! node_end_row :*: unqualNode ! node_end_col :*: n ! name_defining )
 
-  align <- query $ distinct $ do
+  align <- tabulate 10 (++) renameRanges $ \rews -> query $ distinct $ do
     let inRow node (fl :*: _ :*: _ :*: er :*: ec :*: _)
           = node ! node_file .== text fl .&& node ! node_start_row .== int er .&& node ! node_start_col .> int ec
               .&& node ! node_end_row .> node ! node_start_row
     node <- select nodes
-    restrict $ foldl (.||) false (map (inRow node) renameRanges)
+    restrict $ foldl (.||) false (map (inRow node) rews)
 
     let nodeIsInSubseqRow n = n ! node_file .== node ! node_file
                                 .&& n ! node_start_row .> node ! node_start_row
@@ -96,7 +97,7 @@ renameUnique newName original uniqs namespace = do
         restrict $ sc ! scope_end_row .< sco ! scope_end_row
                      .|| sc ! scope_end_row .== sco ! scope_end_row .&& sc ! scope_end_col .<= sco ! scope_end_col
 
-  clashWithDefined <- query $ distinct $ do
+  clashWithDefined <- tabulate 10 (++) uniqNames $ \uniqs -> query $ distinct $ do
     node <- select nodes
     occ <- select names
     sc <- select scopes
@@ -125,7 +126,7 @@ renameUnique newName original uniqs namespace = do
                      .&& snm ! def_namespace .== text namespace
     return ( node ! node_start_row :*: node ! node_start_col :*: snm ! def_uniq :*: snmo ! def_uniq :*: true )
 
-  clashWithImported <- query $ distinct $ do
+  clashWithImported <- tabulate 10 (++) uniqNames $ \uniqs -> query $ distinct $ do
     node <- select nodes
     occ <- select names
     def <- select definitions
@@ -160,7 +161,7 @@ renameUnique newName original uniqs namespace = do
   let clash = clashWithDefined ++ clashWithImported
 
   -- find the fields that could be merged with the name
-  mergeableCandidate <- query $ do
+  mergeableCandidate <- tabulate 10 (++) uniqNames $ \uniqs -> query $ do
     nCtor <- select ctorFields
     occCtor <- select ctorFields
     nTyp <- select typeCtors

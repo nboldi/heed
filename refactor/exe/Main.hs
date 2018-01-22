@@ -8,8 +8,9 @@ import Language.Haskell.Heed.Refactor.OrganizeImports
 import SrcLoc
 
 main = do args <- liftIO $ getArgs
-          res <- withSQLite "haskell.db"
-            $ case args of ["OrganizeImports"] -> organizeImports
-                           ["Rename", span, newName] -> renameDefinition span newName
+          res <- case args of
+            [dbFile, "OrganizeImports"] -> withSQLite dbFile $ organizeImports
+            [dbFile, "Rename", file, span, newName] -> withSQLite dbFile $ renameDefinition file span newName
+            _ -> error $ "Arguments not valid: " ++ show args
           print res
 
