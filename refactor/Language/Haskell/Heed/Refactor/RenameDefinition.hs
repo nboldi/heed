@@ -17,7 +17,9 @@ import FastString
 import System.IO hiding (hGetContents)
 import System.IO.Strict (hGetContents)
 
-import Core
+import Language.Haskell.Heed.Database
+import Language.Haskell.Heed.DBUtils
+import Language.Haskell.Heed.TypeRepresentation
 import Language.Haskell.Heed.Schema
 
 renameDefinition :: String -> String -> String -> SeldaT IO (Either String [(RealSrcSpan, Either RealSrcSpan String)])

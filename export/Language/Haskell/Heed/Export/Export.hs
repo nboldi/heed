@@ -32,7 +32,8 @@ import Module
 import ErrUtils
 import SrcLoc
 
-import Core
+import Language.Haskell.Heed.Database
+import Language.Haskell.Heed.DBUtils
 import Language.Haskell.Heed.Export.Modules
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Lexical

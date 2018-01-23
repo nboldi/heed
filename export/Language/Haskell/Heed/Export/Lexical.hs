@@ -4,7 +4,7 @@ import Data.Text (pack)
 import GHC
 import Database.Selda
 
-import Core
+import Language.Haskell.Heed.Database
 import Language.Haskell.Heed.Export.Utilities
 
 insertTokens :: [((SrcSpan, AnnKeywordId), [SrcSpan])] -> SeldaT Ghc ()

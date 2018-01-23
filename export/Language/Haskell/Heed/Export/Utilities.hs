@@ -37,7 +37,9 @@ import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Database.Selda
-import Core
+import Language.Haskell.Heed.Database
+import Language.Haskell.Heed.DBUtils
+import Language.Haskell.Heed.TypeRepresentation
 import Data.Maybe
 import Data.List
 import Data.Data hiding (typeRep)

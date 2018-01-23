@@ -6,7 +6,7 @@ import Data.Text (pack, unpack)
 import Data.Maybe
 import Data.List as List
 import Data.Function (on)
-import Core
+import Language.Haskell.Heed.Database
 import SrcLoc
 import FastString
 import Language.Haskell.Heed.Schema
@@ -34,13 +34,18 @@ organizeImports fileName = do
     node <- select nodes
     mi <- select moduleImports
     def <- select definitions
-    usedNames <- leftJoin (\u -> u .== def ! def_uniq) $ do
-      name <- select names
-      restrict $ not_ (name ! name_defining)
-      return ( name ! name_uniq )
-    restrict $ not_ (isNull usedNames)
+    usage <- select names
+    showing <- leftJoin (\mis -> mis ! mis_name .== def ! def_uniq .&& mis ! mis_node .== node ! node_id)
+                 $ select moduleImportShowing
+    hiding <- leftJoin (\mih -> mih ! mih_name .== def ! def_uniq .&& mih ! mih_node .== node ! node_id)
+                $ select moduleImportHiding
+    restrict $ isNull (first hiding)
+    restrict $ not_ (mi ! mi_just_listed) .|| not_ (isNull (first showing))
     restrict $ just (mi ! mi_module_id) .== def ! def_module
                  .&& just (node ! node_id) .== mi ! mi_node
+                 .&& usage ! name_uniq .== def ! def_uniq
+                 .&& usage ! name_module .== mi ! mi_contain_module
+    restrict $ not_ (usage ! name_defining)
     return ( def ! def_uniq :*: node ! node_id )
 
   liftIO $ print $ imports
