@@ -19,7 +19,7 @@ nodes = table "nodes" $ autoPrimary "node_id"
                           :*: required "end_row"
                           :*: required "end_col"
                           :*: optional "parent_handle"
-                          :*: required "node_module"
+                          :*: required "node_module" -- `fk` (modules, module_id)
 ( node_id
     :*: node_parent
     :*: node_type
@@ -174,6 +174,24 @@ moduleImportHiding = table "module_imports_hiding" $ required "mih_node"
                                                        :*: required "mih_str"
                                                        :*: required "mih_module" `fk` (modules, module_id)
 ( mih_node :*: mih_name :*: mih_str :*: mih_module ) = selectors moduleImportHiding
+
+type AmbiguousName = RowID :*: Text :*: Int :*: Int :*: Int :*: Int :*: RowID
+
+ambiguousNames :: Table AmbiguousName
+ambiguousNames = table "ambiguous_names" $ required "amb_scope"
+                                             :*: required "amb_file"
+                                             :*: required "amb_start_row"
+                                             :*: required "amb_start_col"
+                                             :*: required "amb_end_row"
+                                             :*: required "amb_end_col"
+                                             :*: required "amb_module" `fk` (modules, module_id)
+( amb_scope
+    :*: amb_file
+    :*: amb_start_row
+    :*: amb_start_col
+    :*: amb_end_row
+    :*: amb_end_col
+    :*: amb_module ) = selectors ambiguousNames
 
 -- * Lexical information
 

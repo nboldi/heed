@@ -46,9 +46,11 @@ test-suite heed-refactor-tests
   build-depends:       base >=4.10 && <4.11
                      , selda
                      , selda-sqlite
+                     , split
                      , tasty
                      , tasty-hunit
                      , filepath
+                     , directory
                      , strict
                      , heed-refactor
                      , heed-export

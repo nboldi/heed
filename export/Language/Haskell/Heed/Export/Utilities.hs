@@ -37,13 +37,13 @@ import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Database.Selda
-import Language.Haskell.Heed.Database
+import Language.Haskell.Heed.Database as DB
 import Language.Haskell.Heed.DBUtils
 import Language.Haskell.Heed.TypeRepresentation
 import Data.Maybe
 import Data.List
 import Data.Data hiding (typeRep)
-import Data.Text (pack)
+import Data.Text (pack, unpack)
 
 import Language.Haskell.Heed.Schema (Schema(..))
 import qualified Language.Haskell.Heed.Schema as Schema
@@ -74,13 +74,13 @@ instance Monoid ExportStore where
 data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 
 liftSelda :: SeldaT Ghc a -> TrfType a
-liftSelda = lift . lift
+liftSelda = lift
 
 initExportState :: ModSummary -> SrcSpan -> ExportStore -> RowID -> ExportStage -> Maybe TcGblEnv -> ExportState
 initExportState mod loc (ExportStore amb skip) ri stage gblEnv
   = ExportState Nothing stage False mod False Nothing ri amb skip loc gblEnv
 
-type TrfType = ReaderT ExportState (WriterT ExportStore (SeldaT Ghc))
+type TrfType = ReaderT ExportState (SeldaT Ghc)
 
 type Exporter n = n -> TrfType ()
 
@@ -208,15 +208,17 @@ writeName sp name = do
 
 doWriteName :: SrcSpan -> GHC.Name -> Maybe RowID -> TrfType ()
 doWriteName sp name scope = do
+  df <- liftSelda $ liftGhc getSessionDynFlags
   cm <- asks (ms_mod . compiledModule)
   m <- asks moduleID
   defining <- asks isDefining
   st <- asks exportStage
   let (file, start_row, start_col, _, _) = spanData sp
   nodeIds <- liftSelda $ lookupNameNode (pack file) start_row start_col
+
   case nodeIds of
-    [] -> liftIO $ putStrLn $ "WARNING: no node id is found at: " ++ show st ++ " " ++ show sp ++ " writing out " ++ showSDocUnsafe (ppr name)
-    _:_:_ -> liftIO $ putStrLn $ "WARNING: multiple node ids found at: " ++ show st ++ " " ++ show sp ++ " writing out " ++ showSDocUnsafe (ppr name)
+    [] -> liftIO $ warningMsg df $ Outputable.text $ "WARNING: no node id is found at: " ++ show st ++ " " ++ show sp ++ " writing out " ++ showSDocUnsafe (ppr name)
+    _:_:_ -> liftIO $ warningMsg df $ Outputable.text $ "WARNING: multiple node ids found at: " ++ show st ++ " " ++ show sp ++ " writing out " ++ showSDocUnsafe (ppr name)
     [nodeId] -> do
       let uniq = createNameUnique cm name
           namespace = occNameSpace $ nameOccName name
@@ -227,6 +229,35 @@ doWriteName sp name scope = do
       when defining
         $ liftSelda $ insert_ definitions [ Just m :*: scope :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: Nothing ]
       liftSelda $ insert_ names [ nodeId :*: pack nsRecord :*: pack nameStr :*: pack uniq :*: defining :*: m ]
+
+writeAmbiguousName :: SrcSpan -> TrfType ()
+writeAmbiguousName loc
+  = do sc <- asks scope
+       m <- asks moduleID
+       let (file, start_row, start_col, end_row, end_col) = spanData loc
+       case sc of Just scope -> liftSelda $ insert_ DB.ambiguousNames [ scope :*: pack file :*: start_row :*: start_col :*: end_row :*: end_col :*: m ]
+                  Nothing -> return ()
+
+getAmbiguousNames :: RowID -> SeldaT Ghc [(SrcSpan, RowID)]
+getAmbiguousNames m = do
+  res <- query $ do amb <- select DB.ambiguousNames
+                    restrict $ amb ! amb_module .== literal m
+                    return amb
+  return $ map fromRow res
+  where fromRow (scope :*: file :*: sr :*: sc :*: er :*: ec :*: _)
+          = let flName = mkFastString $ unpack file
+             in (RealSrcSpan $ mkRealSrcSpan (mkRealSrcLoc flName sr sc) (mkRealSrcLoc flName er ec), scope)
+
+getEvaluatedNodes :: RowID -> SeldaT Ghc [SrcSpan]
+getEvaluatedNodes m = do
+  res <- query $ do node <- select nodes
+                    restrict $ node ! node_module .== literal m
+                                 .&& node ! node_type `isIn` map int [ typeId (undefined :: Schema.Splice), typeId (undefined :: Schema.QuasiQuotation) ]
+                    return node
+  return $ map fromRow res
+  where fromRow ( _ :*: _ :*: _ :*: _ :*: file :*: sr :*: sc :*: er :*: ec :*: _ :*: _ )
+          = let flName = mkFastString $ unpack file
+             in RealSrcSpan $ mkRealSrcSpan (mkRealSrcLoc flName sr sc) (mkRealSrcLoc flName er ec)
 
 writeModImport :: HsName n => LImportDecl n -> TrfType ()
 writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
@@ -252,7 +283,7 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
     _ -> return ()
 
 writeImportedNames :: GHC.Module -> RowID -> [(GHC.Name, Maybe GHC.Name)] -> SeldaT Ghc ()
-writeImportedNames mod modId importedNames = do
+writeImportedNames mod modId importedNames =
   insert_ definitions (map (createNameImport modId) importedNames)
   where createNameImport modId (name, parent)
           = Just modId :*: Nothing :*: pack (showSDocUnsafe (pprNameSpace (namespace name)))

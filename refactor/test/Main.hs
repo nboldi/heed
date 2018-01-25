@@ -4,11 +4,13 @@ module Main where
 import Test.Tasty (TestTree, testGroup, defaultMain)
 import Test.Tasty.HUnit
 import System.FilePath
+import System.Directory
 import System.IO hiding (hGetContents)
 import System.IO.Strict (hGetContents)
 import Control.Monad.IO.Class
 import Database.Selda
 import Database.Selda.SQLite
+import Data.List.Split
 
 import Language.Haskell.Heed.Refactor.RenameDefinition
 import Language.Haskell.Heed.Export.Export
@@ -24,27 +26,31 @@ refactoringTestCases
       ]
 
 root = "examples"
+dbName = "test.db"
 
 checkCorrectlyRefactored :: (String, String, String) -> IO ()
 checkCorrectlyRefactored (mn, span, newName)
   = do originalSource <- liftIO $ withBinaryFile fileName ReadMode (\h -> hSetEncoding h utf8 >> hGetContents h)
        expectedSource <- liftIO $ withBinaryFile resFileName ReadMode (\h -> hSetEncoding h utf8 >> hGetContents h)
-       exportSrcFile root mn True
-       rewr <- withSQLite "haskell.db" $ renameDefinition newName span
+       exportSrcFile dbName root mn True
+       rewr <- withSQLite dbName $ renameDefinition fileName span newName
        case rewr of
          Right rewritings -> let modified = applyRewritings rewritings originalSource
                               in assertEqual "Expected and actual results doesn't match" expectedSource modified
          Left err -> assertFailure err
+       removeFile dbName
   where fileName = root </> map (\case '.' -> pathSeparator; c -> c) mn ++ ".hs"
         resFileName = root </> map (\case '.' -> pathSeparator; c -> c) mn ++ "_res.hs"
 
 checkRefactoringFails :: (String, String, String) -> IO ()
 checkRefactoringFails (mn, span, newName) = do
-  exportSrcFile root mn True
-  rewr <- withSQLite "haskell.db" $ renameDefinition newName span
+  exportSrcFile dbName root mn True
+  rewr <- withSQLite dbName $ renameDefinition fileName span newName
   case rewr of
     Right _ -> assertFailure "The refactoring should fail"
     Left _ -> return ()
+  removeFile dbName
+  where fileName = last (splitOn "." mn) ++ ".hs"
 
 renameDefinitionTests =
   [ ("Refactor.RenameDefinition.AmbiguousFields", "4:14-4:15", "xx")

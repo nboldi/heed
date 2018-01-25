@@ -23,6 +23,10 @@ import SrcLoc
 import Id
 import Outputable
 
+import GHC
+import ErrUtils
+import Language.Haskell.Heed.DBUtils
+
 instance IsRdrName RdrName where
   toRdrName = id
 
@@ -59,10 +63,7 @@ instance HsName GHC.Name where
   exportFieldOccName (L l (FieldOcc _ name)) = exportName (L l name)
 
   exportAmbiguous exporter (L l (Unambiguous rdr pr)) = exporter (L l pr)
-  exportAmbiguous exporter (L l (Ambiguous rdr _))
-    = do sc <- asks scope
-         case sc of Just scope -> tell (ExportStore [ (l, scope) ] [])
-                    Nothing -> return ()
+  exportAmbiguous exporter (L l (Ambiguous _ _)) = writeAmbiguousName l
 
 instance HsName Id where
   exportName (L l n) = do when (isRecordSelector n) $ do

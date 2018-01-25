@@ -17,7 +17,6 @@ import SrcLoc
 
 exportSplice :: HsName n => Exporter (Located (HsSplice n))
 exportSplice spl = do exportSplice' spl
-                      tell (ExportStore [] [getLoc spl])
                       maybe (return ()) (forceNameExport . exportSplice') =<< (renameSplice spl)
 
 exportSplice' :: HsName n => Exporter (Located (HsSplice n))
@@ -31,13 +30,11 @@ exportSplice' (L l sp@(HsQuasiQuote{})) = exportError "splice" sp -- should be e
 exportQuasiQuotation :: HsName n => Exporter (Located (HsSplice n))
 exportQuasiQuotation qq@(L l (HsQuasiQuote _ id l' str))
   = do export QuasiQuotation l [ exportName (L l' id), writeStringAttribute (unpackFS str) ]
-       tell (ExportStore [] [l])
        (maybe (return ()) (forceNameExport . exportQuasiQuotation) =<< (renameSplice qq))
 exportQuasiQuotation (L l qq) = exportError "quasi quotation" qq
 
 exportBracket :: HsName n => Exporter (Located (HsBracket n))
 exportBracket br = do exportBracket' br
-                      tell (ExportStore [] [getLoc br])
                       maybe (return ()) (forceNameExport . exportBracket') =<< (renameBracket br)
 
 exportBracket' :: HsName n => Exporter (Located (HsBracket n))
