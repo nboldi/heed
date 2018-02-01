@@ -31,6 +31,7 @@ import UniqDFM
 import Module
 import ErrUtils
 import SrcLoc
+import TcRnTypes
 
 import Language.Haskell.Heed.Database as DB
 import Language.Haskell.Heed.DBUtils
@@ -86,6 +87,74 @@ exportSrcFile dbPath root modName doExport =
 -- interfaceLoadAction :: forall lcl . [CommandLineOption] -> ModIface -> IfM lcl ModIface
 -- interfaceLoadAction [db] m
 --   = liftIO $ withSQLite db $ transaction $ updateImported availNames m (mi_exports m)
+
+type ModRecord = (ModSummary, HsParsedModule, TcGblEnv)
+
+exportModStuff :: FilePath -> ModRecord -> Ghc ()
+exportModStuff db (ms, p, t) = withSQLite db $ do
+  df <- liftGhc getSessionDynFlags
+  let (ghcTokens, ghcComments) = hpm_annotations p
+      tokenKeys = Map.assocs ghcTokens
+  transaction $ do
+    -- liftIO $ logInfo df (defaultUserStyle df) (ppr (ms_mod ms) Outputable.<> Outputable.text ": transaction start")
+    initDatabase
+    -- liftIO $ logInfo df (defaultUserStyle df) (ppr (ms_mod ms) Outputable.<> Outputable.text ": database initialized")
+    im <- lookupImportedModule (pack $ moduleNameString $ moduleName (ms_mod ms)) (pack $ show $ moduleUnitId (ms_mod ms))
+    modId <- case im of []   -> do -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module is not in the database yet, registering")
+                                   df <- liftGhc getSessionDynFlags
+                                   res <- writeModule ms
+                                   return res
+                        mods -> do -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module is in the database, cleaning")
+                                   withForeignCheckTurnedOff $ removeModuleFromDB ms (map first mods) --check deactivated for performance
+                                   return (first $ head mods)
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module created")
+    insertTokens tokenKeys
+    insertComments (concat $ Map.elems ghcComments)
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "tokens and comments inserted")
+    eof <- query $ do tok <- select tokens
+                      restrict $ tok ! token_str .== text (pack (show AnnEofPos))
+                      return tok
+    let moduleLoc = case eof of [ file :*: _ :*: _ :*: er :*: ec :*: _ ]
+                                  -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
+                                               (mkSrcLoc (mkFastString (unpack file)) er ec)
+                                _ -> noSrcSpan
+    let exportSt = initExportState ms moduleLoc
+    df <- liftGhc getSessionDynFlags
+    flip runReaderT (exportSt emptyStore modId ParsedStage (Just t)) $ exportModule $ hpm_module p
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed stage done")
+    evaluatedNodes <- getEvaluatedNodes modId
+    let store1 = ExportStore [] evaluatedNodes
+    case getRenamed t of
+      Just rs -> flip runReaderT (exportSt store1 modId RenameStage Nothing) $ exportRnModule rs
+      Nothing -> error "Renamed stuff is not found"
+    ambiguousNames <- getAmbiguousNames modId
+    let store2 = ExportStore ambiguousNames evaluatedNodes
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "renamed stage done")
+    flip runReaderT (exportSt store2 modId TypedStage Nothing) $ exportTcModule $ (tcg_binds t)
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "typechecked stage done")
+    return ()
+
+exportGlobalStuff :: FilePath -> Ghc ()
+exportGlobalStuff db = withSQLite db $ do
+  initDatabase
+  sess <- lift getSession
+  eps <- liftIO $ hscEPS sess
+  let pit = eps_PIT eps
+      hpt = hsc_HPT sess
+  -- liftIO $ logInfo df (defaultUserStyle df) $ Outputable.text "accessible interfaces: " Outputable.<> ppr ( map (mi_module . hm_iface) (eltsUDFM hpt) ++ map mi_module (moduleEnvElts pit) )
+  mapM_ (\m -> updateImported availNamesWithSelectors (hm_iface m) (md_exports $ hm_details m)) (eltsUDFM hpt)
+  mapM_ (\m -> updateImported availNames m (mi_exports m)) (moduleEnvElts pit)
+  -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "accessible names loaded")
+
+type RenamedStuff =
+       (HsGroup GHC.Name, [LImportDecl GHC.Name], Maybe [LIE GHC.Name], Maybe LHsDocString)
+
+getRenamed :: TcGblEnv -> Maybe RenamedStuff
+getRenamed tc_result = case tcg_rn_decls tc_result of
+                         Just decl -> Just ( decl, tcg_rn_imports tc_result
+                                                 , tcg_rn_exports tc_result
+                                                 , tcg_doc_hdr tc_result )
+                         Nothing -> Nothing
 
 exportModSummary :: FilePath -> ModSummary -> Ghc ()
 exportModSummary db ms = withSQLite db $ do
