@@ -10,22 +10,19 @@ import Data.Maybe
 
 main = do
   args <- getArgs
-  -- let script = find ("-ghci-script" `isInfixOf`) args
-  -- case script of Just s -> readFile (drop (length "-ghci-script=") s) >>= putStrLn
-  --                Nothing -> putStrLn "No ghci-script"
+  let script = find ("-ghci-script" `isInfixOf`) args
+  ghciScript <- case script of Just s -> readFile (drop (length "-ghci-script=") s)
+                               Nothing -> return ""
+  let scriptLines = lines ghciScript
+      addLine = find (":add " `isInfixOf`) scriptLines
+      modules = words $ maybe "" (drop (length ":add ")) addLine
 
-  let frontendPos = findIndex ("-ffrontend-opt" `isInfixOf`) args
-      frontendOpt = frontendPos >>= \p -> listToMaybe (drop (p + 1) args)
-      args' = case frontendPos of Just p -> take p args ++ drop (p + 2) args
-                                  Nothing -> args
-      ghcExe = maybe ghc (drop (length ugOpt)) (find (ugOpt `isPrefixOf`) args)
-  case (frontendOpt, partition isDisabledArg args') of
-    (Just db, (filtered, passed)) -> do
-      callProcess ghcExe (passed ++ [ "--frontend", "Language.Haskell.Heed.Export.Plugin"
-                                    , "-plugin-package", "heed-export-0.1.0.0" ]
-                                 ++ ["-ffrontend-opt", intercalate " " (db : filtered)]
-                                 ++ [ a | a <- ["-user-package-db"], isInteractive filtered ])
-    _ -> callProcess ghcExe args
+  let ghcExe = maybe ghc (drop (length ugOpt)) (find (ugOpt `isPrefixOf`) args)
+  case partition isDisabledArg args of
+    (filtered, passed) -> do
+      callProcess ghcExe (passed ++ modules
+                                 ++ [ "--frontend", "Language.Haskell.Heed.Export.Plugin"
+                                    , "-plugin-package", "heed-export" ] )
   where isDisabledArg e = e `elem` ["--make", "--interactive", "--print-libdir"]
                             || ugOpt `isPrefixOf` e
         ugOpt = "--use-ghc="
