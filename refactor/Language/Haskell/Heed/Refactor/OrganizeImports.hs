@@ -17,14 +17,16 @@ organizeImports fileName = do
     impDecl <- select nodes
     modName <- select nodes
     attr <- select attributes
+    file <- select files
     restrict $ modName ! node_parent .== just (impDecl ! node_id)
                 .&& modName ! parent_handle .== just (int 5)
-    restrict $ impDecl ! node_file `like` text (pack ("%" ++ fileName))
+                .&& file ! file_id .== impDecl ! node_file
+    restrict $ file ! file_path `like` text (pack ("%" ++ fileName))
                .&& impDecl ! node_type .== int (typeId (undefined :: ImportDecl))
                .&& modName ! node_type .== int (typeId (undefined :: ModuleName))
                .&& attr ! container .== modName ! node_id
                .&& not_ (isNull (attr ! text_attribute))
-    return ( impDecl ! node_file :*: impDecl ! node_start_row :*: impDecl ! node_start_col
+    return ( file ! file_path :*: impDecl ! node_start_row :*: impDecl ! node_start_col
                :*: impDecl ! node_end_row :*: impDecl ! node_end_col :*: attr ! text_attribute :*: impDecl ! node_id )
     -- TODO: extend to accomodate comments
 

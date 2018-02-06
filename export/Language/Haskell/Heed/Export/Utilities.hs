@@ -58,6 +58,8 @@ data ExportState = ExportState { parentData :: Maybe (RowID, Int)
                                , ambiguousNames :: [(SrcSpan, RowID)]
                                , skippedRanges :: [SrcSpan]
                                , moduleRange :: SrcSpan
+                               , defFileName :: Text
+                               , defFileId :: RowID
                                , globalEnv :: Maybe TcGblEnv
                                }
 
@@ -76,9 +78,9 @@ data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 liftSelda :: SeldaT Ghc a -> TrfType a
 liftSelda = lift
 
-initExportState :: ModSummary -> SrcSpan -> ExportStore -> RowID -> ExportStage -> Maybe TcGblEnv -> ExportState
-initExportState mod loc (ExportStore amb skip) ri stage gblEnv
-  = ExportState Nothing stage False mod False Nothing ri amb skip loc gblEnv
+initExportState :: ModSummary -> SrcSpan -> Text -> RowID -> ExportStore -> RowID -> ExportStage -> Maybe TcGblEnv -> ExportState
+initExportState mod loc fileName fileId (ExportStore amb skip) ri stage gblEnv
+  = ExportState Nothing stage False mod False Nothing ri amb skip loc fileName fileId gblEnv
 
 type TrfType = ReaderT ExportState (SeldaT Ghc)
 
@@ -145,12 +147,24 @@ writeInsert' :: Schema s => s -> SrcSpan -> TrfType RowID
 writeInsert' ctor loc = do
   parentRef <- asks parentData
   m <- asks moduleID
+  defName <- asks defFileName
+  defId <- asks defFileId
   let (file, start_row, start_col, end_row, end_col) = spanData loc
+  fileId <- if pack file /= defName then liftSelda $ createFileIfMissing (pack file)
+                                    else return defId
   liftSelda $ insertWithPK nodes [ def :*: fmap fst parentRef :*: typeId ctor
-                                     :*: constrIndex (toConstr ctor) :*: pack file
+                                     :*: constrIndex (toConstr ctor) :*: fileId
                                      :*: start_row :*: start_col :*: end_row :*: end_col
                                      :*: fmap snd parentRef
                                      :*: m ]
+
+createFileIfMissing :: Text -> SeldaT Ghc RowID
+createFileIfMissing name = do
+  fid <- query $ do file <- select files
+                    restrict $ file ! file_path .== text name
+                    return $ file ! file_id
+  case fid of id : rest -> return id
+              []        -> insertWithPK files [ def :*: name ]
 
 writeIntAttribute :: Int -> TrfType ()
 writeIntAttribute i = writeAttribute (Nothing :*: Just i :*: Nothing)
@@ -179,7 +193,9 @@ lookupNameNode = lookupNode [ typeId (undefined :: Schema.Name), typeId (undefin
 lookupNode :: [Int] -> Text -> Int -> Int -> SeldaT Ghc [RowID]
 lookupNode types = prepared $ \file start_row start_col -> do
   n <- select nodes
-  restrict $ file .== n ! node_file
+  f <- select files
+  restrict $ file .== f ! file_path
+              .&& n ! node_file .== f ! file_id
               .&& start_row .== n ! node_start_row
               .&& start_col .== n ! node_start_col
               .&& n ! node_type `isIn` (map int types)
@@ -190,6 +206,13 @@ lookupImportedModule = prepared $ \mod pkg -> do
   (id :*: name :*: package :*: _ :*: hash) <- select modules
   restrict $ mod .== name .&& pkg .== package
   return (id :*: hash)
+
+fetchImportedModule :: Text -> Text -> SeldaT Ghc (RowID :*: Maybe Text)
+fetchImportedModule mod pkg = do
+  existing <- lookupImportedModule mod pkg
+  case existing of [] -> do id <- insertWithPK modules [ def :*: mod :*: pkg :*: Nothing :*: Nothing ]
+                            return (id :*: Nothing)
+                   exist:_ -> return (head existing)
 
 writeModule :: ModSummary -> SeldaT Ghc RowID
 writeModule ms = do
@@ -251,11 +274,14 @@ getAmbiguousNames m = do
 getEvaluatedNodes :: RowID -> SeldaT Ghc [SrcSpan]
 getEvaluatedNodes m = do
   res <- query $ do node <- select nodes
+                    file <- select files
                     restrict $ node ! node_module .== literal m
+                                 .&& node ! node_file .== file ! file_id
                                  .&& node ! node_type `isIn` map int [ typeId (undefined :: Schema.Splice), typeId (undefined :: Schema.QuasiQuotation) ]
-                    return node
+                    return (file ! file_path :*: node ! node_start_row :*: node ! node_start_col
+                              :*: node ! node_end_row :*: node ! node_end_col)
   return $ map fromRow res
-  where fromRow ( _ :*: _ :*: _ :*: _ :*: file :*: sr :*: sc :*: er :*: ec :*: _ :*: _ )
+  where fromRow ( file :*: sr :*: sc :*: er :*: ec )
           = let flName = mkFastString $ unpack file
              in RealSrcSpan $ mkRealSrcSpan (mkRealSrcLoc flName sr sc) (mkRealSrcLoc flName er ec)
 
@@ -265,7 +291,7 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
   cm <- asks (ms_mod . compiledModule)
   m <- asks moduleID
   mod <- liftSelda $ liftGhc $ findModule (unLoc n) (fmap sl_fs pkg)
-  modIds <- liftSelda $ lookupImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
+  modId <- liftSelda $ fetchImportedModule (pack $ moduleNameString $ moduleName mod) (pack $ show $ moduleUnitId mod)
   let (file, start_row, start_col, _, _) = spanData l
   importNode <- liftSelda $ lookupNode [ typeId (undefined :: Schema.ImportDecl) ] (pack file) start_row start_col
   let trfLie n ie = n :*: pack (createNameUnique cm name) :*: pack (occNameString (occName name)) :*: m
@@ -274,10 +300,10 @@ writeModImport (L l (ImportDecl _ n pkg _ _ qual _ declAs hiding)) = do
     ([n], Just (True, h)) -> liftSelda $ insert_ moduleImportHiding (map (trfLie n) (unLoc h))
     ([n], Just (False, h)) -> liftSelda $ insert_ moduleImportShowing (map (trfLie n) (unLoc h))
     _ -> return ()
-  case (sc, map first modIds) of
-    (Just sc, [modId])
+  case sc of
+    Just sc
       -> liftSelda $ insert_ moduleImports
-           [ sc :*: modId :*: qual :*: maybe False (not . fst) hiding
+           [ sc :*: first modId :*: qual :*: maybe False (not . fst) hiding
                 :*: pack (moduleNameString (maybe (unLoc n) unLoc declAs))
                 :*: listToMaybe importNode :*: m ]
     _ -> return ()

@@ -10,7 +10,7 @@ ghc -ffrontend Language.Haskell.Heed.Export.Plugin -ffrontend-opt <dbfile> -j1
 Exporting a cabal project:
 
 ```
-cabal build --with-ghc=heed-ghc --ghc-options="-plugin-package heed-export -ffrontend-opt almafa.db -j1"
+cabal build --with-ghc=heed-ghc --ghc-options="-plugin-package heed-export -ffrontend-opt <dbfile> -j1"
 ```
 
 Exporting a stack project:
@@ -44,5 +44,5 @@ Then build and run the repl:
 
 ```
 stack build --flag DemoProject:HeedExport
-stack repl --with-ghc C:/Users/nboldi/AppData/Roaming/local/bin/heed-ghc --ghc-options -ffrontend-opt --ghc-options almafa.db --ghc-options -j1
+stack repl --with-ghc C:/Users/nboldi/AppData/Roaming/local/bin/heed-ghc --ghc-options -ffrontend-opt --ghc-options <dbfile> --ghc-options -j1
 ```

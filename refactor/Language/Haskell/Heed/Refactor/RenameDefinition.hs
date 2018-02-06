@@ -28,8 +28,10 @@ renameDefinition fileName srcSpan newName = do
   selectedName <- query $ limit 0 1 $ do
     n <- select names
     node <- select nodes
+    file <- select files
     restrict $ node ! node_id .== n ! name_node
-                .&& node ! node_file `like` text (pack ("%" ++ fileName))
+                .&& node ! node_file .== file ! file_id
+                .&& file ! file_path `like` text (pack ("%" ++ fileName))
     restrict $ (int stRow .> node ! node_start_row
                   .|| int stRow .== node ! node_start_row .&& int stCol .>= node ! node_start_col)
     restrict $ (node ! node_end_row .> int endRow
@@ -54,30 +56,36 @@ renameUnique newName original uniqNames namespace = do
     n <- select names
     nameNode <- select nodes
     unqualNode <- select nodes
+    file <- select files
+    restrict $ unqualNode ! node_file .== file ! file_id
     restrict $ nameNode ! node_id .== n ! name_node
                  .&& just (nameNode ! node_id) .== unqualNode ! node_parent
                  .&& unqualNode ! node_type .== int (typeId (undefined :: UnqualifiedName))
     restrict $ n ! name_uniq `isIn` map text uniqs
                  .&& n ! name_namespace .== text namespace
-    return ( unqualNode ! node_file :*: unqualNode ! node_start_row :*: unqualNode ! node_start_col
+    return ( unqualNode ! node_file :*: file ! file_path :*: unqualNode ! node_start_row :*: unqualNode ! node_start_col
                :*: unqualNode ! node_end_row :*: unqualNode ! node_end_col :*: n ! name_defining )
 
   align <- tabulate 10 (++) renameRanges $ \rews -> query $ distinct $ do
-    let inRow node (fl :*: _ :*: _ :*: er :*: ec :*: _)
-          = node ! node_file .== text fl .&& node ! node_start_row .== int er .&& node ! node_start_col .> int ec
+    let inRow node (fl :*: _ :*: _ :*: _ :*: er :*: ec :*: _)
+          = node ! node_file .== literal fl
+              .&& node ! node_start_row .== int er
+              .&& node ! node_start_col .> int ec
               .&& node ! node_end_row .> node ! node_start_row
     node <- select nodes
-    restrict $ foldl (.||) false (map (inRow node) rews)
+    file <- select files
+    restrict $ node ! node_file .== file ! file_id
+                 .&& foldl (.||) false (map (inRow node) rews)
 
     let nodeIsInSubseqRow n = n ! node_file .== node ! node_file
                                 .&& n ! node_start_row .> node ! node_start_row
                                 .&& n ! node_end_row .<= node ! node_end_row
                                 .&& n ! node_start_col .<= node ! node_start_col
-        commentIsInSubseqRow n = n ! comment_file .== node ! node_file
+        commentIsInSubseqRow n = n ! comment_file .== file ! file_path
                                    .&& n ! comment_start_row .> node ! node_start_row
                                    .&& n ! comment_end_row .<= node ! node_end_row
                                    .&& n ! comment_start_col .<= node ! node_start_col
-        tokenIsInSubseqRow n = n ! token_file .== node ! node_file
+        tokenIsInSubseqRow n = n ! token_file .== file ! file_path
                                  .&& n ! token_start_row .> node ! node_start_row
                                  .&& n ! token_end_row .<= node ! node_end_row
                                  .&& n ! token_start_col .<= node ! node_start_col
@@ -86,7 +94,7 @@ renameUnique newName original uniqNames namespace = do
     tokenBeforeCol <- leftJoin tokenIsInSubseqRow (select tokens)
 
     restrict $ isNull (first nodesBeforeCol) .&& isNull (first commentBeforeCol) .&& isNull (first tokenBeforeCol)
-    return (node ! node_file :*: (node ! node_start_row) + 1 :*: node ! node_end_row )
+    return (file ! file_path :*: (node ! node_start_row) + 1 :*: node ! node_end_row )
 
   let nameInScope node sc = do
         restrict $ (sc ! scope_start_row .< node ! node_start_row
@@ -180,7 +188,7 @@ renameUnique newName original uniqNames namespace = do
     return (occCtor ! cf_field :*: occType ! type_desc :*: nType ! type_desc )
   let mergeable = catMaybes $ map (\( name :*: t1 :*: t2 ) -> if read (unpack t1) `typeRepEq` read (unpack t2) then Just name else Nothing) mergeableCandidate
       isMergeable (r :*: c :*: n1 :*: n2 :*: _) = n1 `notElem` mergeable && n2 `notElem` mergeable
-      isDefining ( _ :*: _ :*: _ :*: _ :*: _ :*: d ) = d
+      isDefining ( _ :*: _ :*: _ :*: _ :*: _ :*: _ :*: d ) = d
   case (or (map isDefining renameRanges) || unpack namespace == "type variable", filter isMergeable clash) of
     (False, _) -> return $ Left $ "Definition of name is not found."
     (True, []) -> do
@@ -193,7 +201,7 @@ renameUnique newName original uniqNames namespace = do
       return $ Right (nameRewriteChanges ++ realignChanges)
     (True, clashes) -> return $ Left $ "Name clashes at: " ++ show clashes
   where
-    resToSpan (file :*: sr :*: sc :*: er :*: ec :*: _)
+    resToSpan (_ :*: file :*: sr :*: sc :*: er :*: ec :*: _)
       = mkRealSrcSpan (mkRealSrcLoc (mkFastString (unpack file)) sr sc) (mkRealSrcLoc (mkFastString (unpack file)) er ec)
     alignToSpan file sr = realSrcLocSpan (mkRealSrcLoc (mkFastString (unpack file)) sr 1)
 
@@ -217,21 +225,24 @@ renameModuleStr :: Text -> String -> SeldaT IO (Either String [(RealSrcSpan, Eit
 renameModuleStr oldName newName = do
   rewritten <- query $ do
     node <- select nodes
+    file <- select files
     attr <- select attributes
     restrict $ node ! node_type `isIn` [ int (typeId (undefined :: ModuleName))
                                        , int (typeId (undefined :: Qualifiers)) ]
                  .&& attr ! container .== node ! node_id
                  .&& attr ! text_attribute .== just (text oldName)
-    return ( node ! node_file :*: node ! node_start_row :*: node ! node_start_col
+                 .&& node ! node_file .== file ! file_id
+    return ( file ! file_path :*: node ! node_start_row :*: node ! node_start_col
                :*: node ! node_end_row :*: node ! node_end_col )
 
   conflicts <- query $ do
     node <- select nodes
+    file <- select files
     attr <- select attributes
     restrict $ node ! node_type .== int (typeId (undefined :: ModuleName))
                  .&& attr ! container .== node ! node_id
                  .&& attr ! text_attribute .== just (text (pack newName))
-    return ( node ! node_file :*: node ! node_start_row :*: node ! node_start_col
+    return ( file ! file_path :*: node ! node_start_row :*: node ! node_start_col
                :*: node ! node_end_row :*: node ! node_end_col )
 
   let rewriteChanges = map ((, Right newName) . resToSpan) rewritten

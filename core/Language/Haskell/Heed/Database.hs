@@ -6,20 +6,20 @@ import Database.Selda
 
 -- * Syntax
 
-type Node = RowID :*: Maybe RowID :*: Int :*: Int :*: Text :*: Int :*: Int :*: Int :*: Int :*: Maybe Int :*: RowID
+type Node = RowID :*: Maybe RowID :*: Int :*: Int :*: RowID :*: Int :*: Int :*: Int :*: Int :*: Maybe Int :*: RowID
 
 nodes :: Table Node
 nodes = table "nodes" $ autoPrimary "node_id"
                           :*: optional "parent_id" `optFk` (nodes, node_id)
                           :*: required "node_type"
-                          :*: required "ctor"
-                          :*: required "file"
+                          :*: required "node_ctor"
+                          :*: required "node_file" `fk` (files, file_id)
                           :*: required "start_row"
                           :*: required "start_col"
                           :*: required "end_row"
                           :*: required "end_col"
                           :*: optional "parent_handle"
-                          :*: required "node_module" -- `fk` (modules, module_id)
+                          :*: required "node_module" `fk` (modules, module_id)
 ( node_id
     :*: node_parent
     :*: node_type
@@ -47,6 +47,15 @@ attributes = table "attributes" $ required "container" `fk` (nodes, node_id)
     :*: text_attribute
     :*: integer_attribute
     :*: fractional_attribute ) = selectors attributes
+
+type File = RowID :*: Text
+
+files :: Table File
+files = table "files" $ autoPrimary "file_id"
+                          :*: required "file_path"
+
+(file_id :*: file_path) = selectors files
+
 
 type Module = RowID :*: Text :*: Text :*: Maybe Text :*: Maybe Text
 

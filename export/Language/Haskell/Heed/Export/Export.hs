@@ -54,6 +54,19 @@ exportSrcFile dbPath root modName doExport =
       withSQLite dbPath $ cleanDatabase
       exportModSummary dbPath modSum
 
+exportModSummary :: FilePath -> ModSummary -> Ghc ()
+exportModSummary db ms = do
+  df <- getSessionDynFlags
+  p <- parseModule ms
+  let (ghcTokens, ghcComments) = pm_annotations $ p
+      tokenKeys = Map.assocs ghcTokens
+  t <- typecheckModule p
+  let tc = fst $ tm_internals_ t
+      hpm = HsParsedModule (pm_parsed_source p) (pm_extra_src_files p) (pm_annotations p)
+      modRecord = ( ms , hpm , tc )
+  exportModStuff db modRecord
+  exportGlobalStuff db
+
 -- parsedAction :: [String] -> ModSummary -> HsParsedModule -> Hsc HsParsedModule
 -- parsedAction [db] ms pm = withSQLite db $ transaction $ do
 --   let (ghcTokens, ghcComments) = hpm_annotations $ p
@@ -95,6 +108,9 @@ exportModStuff db (ms, p, t) = withSQLite db $ do
   df <- liftGhc getSessionDynFlags
   let (ghcTokens, ghcComments) = hpm_annotations p
       tokenKeys = Map.assocs ghcTokens
+      fileName = case getLoc $ hpm_module p of
+                   RealSrcSpan sp -> unpackFS $ srcSpanFile sp
+                   _              -> "<nofile>"
   transaction $ do
     -- liftIO $ logInfo df (defaultUserStyle df) (ppr (ms_mod ms) Outputable.<> Outputable.text ": transaction start")
     initDatabase
@@ -113,12 +129,14 @@ exportModStuff db (ms, p, t) = withSQLite db $ do
     -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "tokens and comments inserted")
     eof <- query $ do tok <- select tokens
                       restrict $ tok ! token_str .== text (pack (show AnnEofPos))
+                      restrict $ tok ! token_file .== text (pack fileName)
                       return tok
-    let moduleLoc = case eof of [ file :*: _ :*: _ :*: er :*: ec :*: _ ]
+    let moduleLoc = case eof of (file :*: _ :*: _ :*: er :*: ec :*: _) : _
                                   -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
                                                (mkSrcLoc (mkFastString (unpack file)) er ec)
-                                _ -> noSrcSpan
-    let exportSt = initExportState ms moduleLoc
+                                [] -> noSrcSpan
+    fileId <- createFileIfMissing (pack fileName)
+    let exportSt = initExportState ms moduleLoc (pack fileName) fileId
     df <- liftGhc getSessionDynFlags
     flip runReaderT (exportSt emptyStore modId ParsedStage (Just t)) $ exportModule $ hpm_module p
     -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed stage done")
@@ -142,7 +160,6 @@ exportGlobalStuff db = withSQLite db $ do
   let pit = eps_PIT eps
       hpt = hsc_HPT sess
   -- liftIO $ logInfo df (defaultUserStyle df) $ Outputable.text "accessible interfaces: " Outputable.<> ppr ( map (mi_module . hm_iface) (eltsUDFM hpt) ++ map mi_module (moduleEnvElts pit) )
-  mapM_ (\m -> updateImported availNamesWithSelectors (hm_iface m) (md_exports $ hm_details m)) (eltsUDFM hpt)
   mapM_ (\m -> updateImported availNames m (mi_exports m)) (moduleEnvElts pit)
   -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "accessible names loaded")
 
@@ -155,58 +172,6 @@ getRenamed tc_result = case tcg_rn_decls tc_result of
                                                  , tcg_rn_exports tc_result
                                                  , tcg_doc_hdr tc_result )
                          Nothing -> Nothing
-
-exportModSummary :: FilePath -> ModSummary -> Ghc ()
-exportModSummary db ms = withSQLite db $ do
-  df <- liftGhc getSessionDynFlags
-  initDatabase
-  p <- liftGhc $ parseModule ms
-  let (ghcTokens, ghcComments) = pm_annotations $ p
-      tokenKeys = Map.assocs ghcTokens
-  t <- liftGhc $ typecheckModule p
-  transaction $ do
-    -- liftIO $ logInfo df (defaultUserStyle df) (ppr (ms_mod ms) Outputable.<> Outputable.text ": transaction start")
-    im <- lookupImportedModule (pack $ moduleNameString $ moduleName (ms_mod ms)) (pack $ show $ moduleUnitId (ms_mod ms))
-    modId <- case im of []   -> do -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module is not in the database yet, registering")
-                                   df <- liftGhc getSessionDynFlags
-                                   res <- writeModule ms
-                                   return res
-                        mods -> do -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module is in the database, cleaning")
-                                   withForeignCheckTurnedOff $ removeModuleFromDB ms (map first mods) --check deactivated for performance
-                                   return (first $ head mods)
-    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module created")
-    do sess <- lift getSession
-       eps <- liftIO $ hscEPS sess
-       let pit = eps_PIT eps
-           hpt = hsc_HPT sess
-       -- liftIO $ logInfo df (defaultUserStyle df) $ Outputable.text "accessible interfaces: " Outputable.<> ppr ( map (mi_module . hm_iface) (eltsUDFM hpt) ++ map mi_module (moduleEnvElts pit) )
-       mapM_ (\m -> updateImported availNamesWithSelectors (hm_iface m) (md_exports $ hm_details m)) (eltsUDFM hpt)
-       mapM_ (\m -> updateImported availNames m (mi_exports m)) (moduleEnvElts pit)
-       -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "accessible names loaded")
-    insertTokens tokenKeys
-    insertComments (concat $ Map.elems ghcComments)
-    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "tokens and comments inserted")
-    eof <- query $ do tok <- select tokens
-                      restrict $ tok ! token_str .== text (pack (show AnnEofPos))
-                      return tok
-    let moduleLoc = case eof of [ file :*: _ :*: _ :*: er :*: ec :*: _ ]
-                                  -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
-                                               (mkSrcLoc (mkFastString (unpack file)) er ec)
-                                _ -> noSrcSpan
-    let gblEnv = fst $ tm_internals_ t
-        exportSt = initExportState ms moduleLoc
-    df <- liftGhc getSessionDynFlags
-    flip runReaderT (exportSt emptyStore modId ParsedStage (Just gblEnv)) $ exportModule $ parsedSource p
-    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed stage done")
-    evaluatedNodes <- getEvaluatedNodes modId
-    let store1 = ExportStore [] evaluatedNodes
-    case renamedSource t of Just rs -> flip runReaderT (exportSt store1 modId RenameStage Nothing) $ exportRnModule rs
-    ambiguousNames <- getAmbiguousNames modId
-    let store2 = ExportStore ambiguousNames evaluatedNodes
-    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "renamed stage done")
-    flip runReaderT (exportSt store2 modId TypedStage Nothing) $ exportTcModule $ typecheckedSource t
-    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "typechecked stage done")
-    return ()
 
 updateImported :: (AvailInfo -> [GHC.Name]) -> ModIface -> [AvailInfo] -> SeldaT Ghc ()
 updateImported f m avails
@@ -224,14 +189,14 @@ updateImported f m avails
        when (Just hash /= hash') $ do
          deleteFrom_ definitions (\d -> d ! def_module .== just (literal mId))
          writeImportedNames (mi_module m) mId (concatMap (\a -> map (availToPair a) $ f a) avails)
-         update_ modules (\m -> m ! module_id .== literal mId) (\m -> m `with` [module_hash := just (text hash)])
+         update_ modules (\m -> m ! module_id .== literal mId)
+                 (\m -> m `with` [module_hash := just (text hash)])
   where availToPair a n = if n == availName a then (n, Nothing) else (n, Just $ availName a)
 
 removeModuleFromDB :: ModSummary -> [RowID] -> SeldaT Ghc ()
 removeModuleFromDB ms (map literal -> modIDs) = do
   df <- liftGhc getSessionDynFlags
   let fileName = text (pack (fromJust $ ml_hs_file $ ms_location ms))
-      isFromModule n = n ! node_file .== fileName
   deleteFrom_ names (\name -> name ! name_module `isIn` modIDs)
   deleteFrom_ attributes (\attr -> attr ! attribute_module `isIn` modIDs)
   deleteFrom_ definitions (\d -> d ! def_module `isIn` map just modIDs)
@@ -248,10 +213,12 @@ removeModuleFromDB ms (map literal -> modIDs) = do
   deleteFrom_ scopes (\sc -> sc ! scope_file .== fileName)
   deleteFrom_ tokens (\t -> t ! token_file .== fileName)
   deleteFrom_ comments (\c -> c ! comment_file .== fileName)
+  -- deleteFrom_ files (\c -> c ! comment_file .== fileName) -- files are not deleted
   -- deleteFrom_ modules (\m -> m ! module_id `isIn` modIDs) -- modules are not deleted
 
 initDatabase :: SeldaT Ghc ()
 initDatabase = do
+  tryCreateTable files
   tryCreateTable tokens
   tryCreateTable comments
   tryCreateTable nodes
@@ -271,6 +238,7 @@ initDatabase = do
 
 cleanDatabase :: SeldaT Ghc ()
 cleanDatabase = withForeignCheckTurnedOff $ do
+   tryDropTable files
    tryDropTable tokens
    tryDropTable comments
    tryDropTable nodes
