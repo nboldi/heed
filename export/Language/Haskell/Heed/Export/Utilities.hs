@@ -325,8 +325,8 @@ writeType sp id = do
   let name = idName id
       (file, start_row, start_col, _, _) = spanData sp
       uniq = createNameUnique cm name
-  let typeRep = toTypeRep cm (idType id)
-  liftSelda $ insert_ types [ pack uniq :*: pack (show typeRep) :*: m ]
+  let typeRep = writeTypeRep $ toTypeRep cm (idType id)
+  liftSelda $ insert_ types [ pack uniq :*: typeRep :*: m ]
 
 writeImplicitInfo :: (HsName n, HsHasName (FieldOcc n)) => (a -> [GHC.Name]) -> [HsRecField n a] -> TrfType ()
 writeImplicitInfo select flds = doWriteImplicitInfo (map getLabelAndExpr flds)

@@ -1,5 +1,8 @@
 module Language.Haskell.Heed.DBUtils where
 
+import qualified Data.Text as T
+import Data.Text.Encoding as T
+import qualified Data.ByteString as BS
 import Data.List.Split
 import Control.Monad.Trans
 import Control.Monad
@@ -44,3 +47,10 @@ withForeignCheckTurnedOff act = do
 tabulate :: Monad m => Int -> ([a] -> [a] -> [a]) -> [b] -> ([b] -> m [a]) -> m [a]
 tabulate n comb inp op = foldl1 comb <$> mapM op chunks
   where chunks = chunksOf n inp
+
+bsToText :: BS.ByteString -> Text
+bsToText = T.decodeUtf8 -- X.toText . X.fromBinary
+
+textToBS :: Text -> BS.ByteString
+textToBS = T.encodeUtf8 -- X.toBinary . hexString . T.encodeUtf8
+

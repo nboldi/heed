@@ -124,7 +124,6 @@ ctorFields = table "ctor_fields" $ required "cf_constructor"
                                      :*: required "cf_field"
                                      :*: required "cf_module" `fk` (modules, module_id)
 ( cf_constructor :*: cf_field :*: cf_module ) = selectors ctorFields
- -- `fk` (modules, module_id)
 
 type TypeCtor = Text :*: Text :*: RowID
 

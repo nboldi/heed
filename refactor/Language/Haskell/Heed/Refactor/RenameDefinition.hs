@@ -186,7 +186,7 @@ renameUnique newName original uniqNames namespace = do
                  .&& occCtor ! cf_field .== occType ! type_name
                  .&& nCtor ! cf_field .== nType ! type_name
     return (occCtor ! cf_field :*: occType ! type_desc :*: nType ! type_desc )
-  let mergeable = catMaybes $ map (\( name :*: t1 :*: t2 ) -> if read (unpack t1) `typeRepEq` read (unpack t2) then Just name else Nothing) mergeableCandidate
+  let mergeable = catMaybes $ map (\( name :*: t1 :*: t2 ) -> if readTypeRep t1 `typeRepEq` readTypeRep t2 then Just name else Nothing) mergeableCandidate
       isMergeable (r :*: c :*: n1 :*: n2 :*: _) = n1 `notElem` mergeable && n2 `notElem` mergeable
       isDefining ( _ :*: _ :*: _ :*: _ :*: _ :*: _ :*: d ) = d
   case (or (map isDefining renameRanges) || unpack namespace == "type variable", filter isMergeable clash) of

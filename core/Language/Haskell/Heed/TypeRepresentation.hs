@@ -1,7 +1,13 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Language.Haskell.Heed.TypeRepresentation where
 
+import Language.Haskell.Heed.DBUtils
+import Data.Text (Text)
+import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
 import Data.List
+import Data.Binary
+import GHC.Generics (Generic)
 
 data TypeRepresentation = TRForAll [String] TypeRepresentation
                         | TRVar String
@@ -11,10 +17,20 @@ data TypeRepresentation = TRForAll [String] TypeRepresentation
                         | TRNumLit Integer
                         | TRStringLit String
                         | TRCoercion
-  deriving (Show, Read)
+  deriving (Show, Read, Generic)
+
+instance Binary TypeRepresentation
 
 typeRepEq :: TypeRepresentation -> TypeRepresentation -> Bool
 typeRepEq = compareTypeRep []
+
+-- TODO: use ByteString for storing types when there will be support in Selda
+
+readTypeRep :: Text -> TypeRepresentation
+readTypeRep = decode . BL.fromStrict . textToBS
+
+writeTypeRep :: TypeRepresentation -> Text
+writeTypeRep = bsToText . BL.toStrict . encode
 
 compareTypeRep :: [(String,String)] -> TypeRepresentation -> TypeRepresentation -> Bool
 compareTypeRep env (TRForAll vars1 t1) (TRForAll vars2 t2)
