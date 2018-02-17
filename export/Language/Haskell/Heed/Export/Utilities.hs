@@ -237,7 +237,8 @@ doWriteName sp name scope = do
   defining <- asks isDefining
   st <- asks exportStage
   let (file, start_row, start_col, _, _) = spanData sp
-  nodeIds <- liftSelda $ lookupNameNode (pack file) start_row start_col
+  nodeIds <- return [m]
+  -- nodeIds <- liftSelda $ lookupNameNode (pack file) start_row start_col
 
   case nodeIds of
     [] -> liftIO $ warningMsg df $ Outputable.text $ "WARNING: no node id is found at: " ++ show st ++ " " ++ show sp ++ " writing out " ++ showSDocUnsafe (ppr name)
