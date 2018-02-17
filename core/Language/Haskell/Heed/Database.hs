@@ -72,7 +72,7 @@ modules = table "modules" $ autoPrimary "module_id"
 type Name = RowID :*: Text :*: Text :*: Text :*: Bool :*: RowID
 
 names :: Table Name
-names = table "names" $ required "name_node" -- `fk` (nodes, node_id)
+names = table "names" $ required "name_node" `fk` (nodes, node_id)
                           :*: required "name_namespace"
                           :*: required "name_str"
                           :*: required "name_uniq"

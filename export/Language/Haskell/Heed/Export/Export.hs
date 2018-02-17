@@ -33,8 +33,6 @@ import ErrUtils
 import SrcLoc
 import TcRnTypes
 
-import System.CPUTime
-
 import Language.Haskell.Heed.Database as DB
 import Language.Haskell.Heed.DBUtils
 import Language.Haskell.Heed.Export.Modules
@@ -105,31 +103,17 @@ exportModSummary db ms = do
 
 type ModRecord = (ModSummary, HsParsedModule, TcGblEnv)
 
-timeIt :: MonadIO m => DynFlags -> String -> m a -> m a
-timeIt df label act = do
-    startTime <- liftIO $ getCPUTime
-    res <- act
-    endTime <- liftIO $ getCPUTime
-    liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ label ++ ": " ++ show ((endTime - startTime) `div` 1000000000) ++ " ms")
-    return res
-
 exportModStuff :: FilePath -> ModRecord -> Ghc ()
 exportModStuff db (ms, p, t) = withSQLite db $ do
-  startTime <- liftIO $ getCPUTime
   df <- liftGhc getSessionDynFlags
   let (ghcTokens, ghcComments) = hpm_annotations p
       tokenKeys = Map.assocs ghcTokens
       fileName = case getLoc $ hpm_module p of
                    RealSrcSpan sp -> unpackFS $ srcSpanFile sp
                    _              -> "<nofile>"
-  {- transaction $ -}
-  do
+  transaction $ do
     -- liftIO $ logInfo df (defaultUserStyle df) (ppr (ms_mod ms) Outputable.<> Outputable.text ": transaction start")
-    initDBStartTime <- liftIO $ getCPUTime
     initDatabase
-    initDBEndTime <- liftIO $ getCPUTime
-    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "initDatabase: " ++ show ((initDBEndTime - initDBStartTime) `div` 1000000000) ++ " ms")
-    df <- liftGhc getSessionDynFlags
     -- liftIO $ logInfo df (defaultUserStyle df) (ppr (ms_mod ms) Outputable.<> Outputable.text ": database initialized")
     im <- lookupImportedModule (pack $ moduleNameString $ moduleName (ms_mod ms)) (pack $ show $ moduleUnitId (ms_mod ms))
     modId <- case im of []   -> do -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module is not in the database yet, registering")
@@ -137,59 +121,39 @@ exportModStuff db (ms, p, t) = withSQLite db $ do
                                    res <- writeModule ms
                                    return res
                         mods -> do -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module is in the database, cleaning")
-                                   removeModStart <- liftIO $ getCPUTime
                                    withForeignCheckTurnedOff $ removeModuleFromDB ms (map first mods) --check deactivated for performance
-                                   removeModEnd <- liftIO $ getCPUTime
-                                   -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "removeModuleFromDB: " ++ show ((removeModEnd - removeModStart) `div` 1000000000) ++ " ms")
                                    return (first $ head mods)
     -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "module created")
-
-    -- removing is very slow if done in a transaction
-    transaction $ do
-      lexicalStartTime <- liftIO $ getCPUTime
-      insertTokens tokenKeys
-      insertComments (concat $ Map.elems ghcComments)
-      lexicalEndTime <- liftIO $ getCPUTime
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "lexical: " ++ show ((lexicalEndTime - lexicalStartTime) `div` 1000000000) ++ " ms")
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "tokens and comments inserted")
-      eof <- query $ do tok <- select tokens
-                        restrict $ tok ! token_str .== text (pack (show AnnEofPos))
-                        restrict $ tok ! token_file .== text (pack fileName)
-                        return tok
-      let moduleLoc = case eof of (file :*: _ :*: _ :*: er :*: ec :*: _) : _
-                                    -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
-                                                 (mkSrcLoc (mkFastString (unpack file)) er ec)
-                                  [] -> noSrcSpan
-      fileId <- createFileIfMissing (pack fileName)
-      let exportSt = initExportState ms moduleLoc (pack fileName) fileId
-      parsedStartTime <- liftIO $ getCPUTime
-      flip runReaderT (exportSt emptyStore modId ParsedStage (Just t)) $ exportModule $ hpm_module p
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed stage done")
-      parsedEndTime <- liftIO $ getCPUTime
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed: " ++ show ((parsedEndTime - parsedStartTime) `div` 1000000000) ++ " ms")
-      evaluatedNodes <- getEvaluatedNodes modId
-      let store1 = ExportStore [] evaluatedNodes
-      renamedStartTime <- liftIO $ getCPUTime
-      case getRenamed t of
-        Just rs -> flip runReaderT (exportSt store1 modId RenameStage Nothing) $ exportRnModule rs
-        Nothing -> error "Renamed stuff is not found"
-      renamedEndTime <- liftIO $ getCPUTime
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "renamed: " ++ show ((renamedEndTime - renamedStartTime) `div` 1000000000) ++ " ms")
-      ambiguousNames <- getAmbiguousNames modId
-      let store2 = ExportStore ambiguousNames evaluatedNodes
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "renamed stage done")
-      typeCheckedStartTime <- liftIO $ getCPUTime
-      flip runReaderT (exportSt store2 modId TypedStage Nothing) $ exportTcModule $ (tcg_binds t)
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "typechecked stage done")
-      typeCheckedEndTime <- liftIO $ getCPUTime
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "typeChecked: " ++ show ((typeCheckedEndTime - typeCheckedStartTime) `div` 1000000000) ++ " ms")
-      endTime <- liftIO $ getCPUTime
-      -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "exportModStuff: " ++ show ((endTime - startTime) `div` 1000000000) ++ " ms")
-      return ()
+    insertTokens tokenKeys
+    insertComments (concat $ Map.elems ghcComments)
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "tokens and comments inserted")
+    eof <- query $ do tok <- select tokens
+                      restrict $ tok ! token_str .== text (pack (show AnnEofPos))
+                      restrict $ tok ! token_file .== text (pack fileName)
+                      return tok
+    let moduleLoc = case eof of (file :*: _ :*: _ :*: er :*: ec :*: _) : _
+                                  -> mkSrcSpan (mkSrcLoc (mkFastString (unpack file)) 1 1)
+                                               (mkSrcLoc (mkFastString (unpack file)) er ec)
+                                [] -> noSrcSpan
+    fileId <- createFileIfMissing (pack fileName)
+    let exportSt = initExportState ms moduleLoc (pack fileName) fileId
+    df <- liftGhc getSessionDynFlags
+    flip runReaderT (exportSt emptyStore modId ParsedStage (Just t)) $ exportModule $ hpm_module p
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed stage done")
+    evaluatedNodes <- getEvaluatedNodes modId
+    let store1 = ExportStore [] evaluatedNodes
+    case getRenamed t of
+      Just rs -> flip runReaderT (exportSt store1 modId RenameStage Nothing) $ exportRnModule rs
+      Nothing -> error "Renamed stuff is not found"
+    ambiguousNames <- getAmbiguousNames modId
+    let store2 = ExportStore ambiguousNames evaluatedNodes
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "renamed stage done")
+    flip runReaderT (exportSt store2 modId TypedStage Nothing) $ exportTcModule $ (tcg_binds t)
+    -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "typechecked stage done")
+    return ()
 
 exportGlobalStuff :: FilePath -> Ghc ()
 exportGlobalStuff db = withSQLite db $ do
-  startTime <- liftIO $ getCPUTime
   initDatabase
   sess <- lift getSession
   eps <- liftIO $ hscEPS sess
@@ -198,9 +162,6 @@ exportGlobalStuff db = withSQLite db $ do
   -- liftIO $ logInfo df (defaultUserStyle df) $ Outputable.text "accessible interfaces: " Outputable.<> ppr ( map (mi_module . hm_iface) (eltsUDFM hpt) ++ map mi_module (moduleEnvElts pit) )
   mapM_ (\m -> updateImported availNames m (mi_exports m)) (moduleEnvElts pit)
   -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "accessible names loaded")
-  endTime <- liftIO $ getCPUTime
-  df <- liftGhc getSessionDynFlags
-  liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "exportGlobalStuff: " ++ show ((endTime - startTime) `div` 1000000000) ++ " ms")
 
 type RenamedStuff =
        (HsGroup GHC.Name, [LImportDecl GHC.Name], Maybe [LIE GHC.Name], Maybe LHsDocString)
