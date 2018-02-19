@@ -16,9 +16,7 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Language.Haskell.Heed.Database
-                       Language.Haskell.Heed.DBUtils
-                       Language.Haskell.Heed.TypeRepresentation
+  exposed-modules:     Language.Haskell.Heed.TypeRepresentation
                        Language.Haskell.Heed.Schema
   -- other-modules:
   -- other-extensions:

@@ -27,7 +27,7 @@ exportTcModule binds
 exportRnModule :: HsName n => Exporter (HsGroup n, [LImportDecl n], Maybe [LIE n], Maybe LHsDocString)
 exportRnModule (gr,imports,exps,_)
   = do rn <- asks moduleRange
-       addToScope rn $ do
+       newScope_ rn $ do
          mapM_ writeModImport imports
          export Schema.Module noSrcSpan [ return ()
                                         , maybe (return ()) (mapM_ exportExportSpec) exps

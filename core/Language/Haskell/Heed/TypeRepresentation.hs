@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 module Language.Haskell.Heed.TypeRepresentation where
 
-import Language.Haskell.Heed.DBUtils
 import Data.Text (Text)
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe
@@ -26,11 +25,26 @@ typeRepEq = compareTypeRep []
 
 -- TODO: use ByteString for storing types when there will be support in Selda
 
-readTypeRep :: Text -> TypeRepresentation
-readTypeRep = decode . BL.fromStrict . textToBS
-
-writeTypeRep :: TypeRepresentation -> Text
-writeTypeRep = bsToText . BL.toStrict . encode
+-- toTypeRep :: GHC.Module -> GHC.Type -> TypeRepresentation
+-- toTypeRep mod t
+--   | Just tv <- getTyVar_maybe t
+--   = TRVar (createNameUnique mod (getName tv))
+--   | (args, res) <- splitFunTys t, not (null args)
+--   = TRFun (map (toTypeRep mod) args) (toTypeRep mod res)
+--   | Just (base, arg) <- splitAppTy_maybe t
+--   = TRApp (toTypeRep mod base) (toTypeRep mod arg)
+--   | Just (tc, args) <- splitTyConApp_maybe t
+--   = TRConApp (createNameUnique mod (getName tc)) (map (toTypeRep mod) args)
+--   | (tvs, t') <- splitForAllTys t, not (null tvs)
+--   = TRForAll (map (createNameUnique mod . getName) tvs) (toTypeRep mod t')
+--   | Just i <- isNumLitTy t
+--   = TRNumLit i
+--   | Just str <- isStrLitTy t
+--   = TRStringLit (unpackFS str)
+--   | Just (t',_) <- splitCastTy_maybe t
+--   = toTypeRep mod t'
+--   | isCoercionType t
+--   = TRCoercion
 
 compareTypeRep :: [(String,String)] -> TypeRepresentation -> TypeRepresentation -> Bool
 compareTypeRep env (TRForAll vars1 t1) (TRForAll vars2 t2)

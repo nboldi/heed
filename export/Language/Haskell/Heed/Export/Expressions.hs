@@ -35,8 +35,9 @@ exportExpression (L l (HsIPVar ip)) = export VarE l [ exportImplicitName (L l ip
 exportExpression (L l (HsOverLit (ol_val -> val))) = export LiteralE l [ exportPolyLiteral (L l val) ]
 exportExpression (L l (HsLit val)) = export LiteralE l [ exportMonoLiteral (L l val) ]
 exportExpression (L l (HsLam (unLoc . mg_alts -> [unLoc -> Match _ pats _ (GRHSs [unLoc -> GRHS [] expr] (unLoc -> EmptyLocalBinds))])))
-  = addToScope (combineLocated pats)
-      $ export LambdaE l [ mapM_ exportPattern pats, exportExpression expr ]
+  = do writeInsert LambdaE l
+       newScope l (goInto l 1 $ mapM_ exportPattern pats)
+                  (goInto l 2 $ exportExpression expr)
 exportExpression (L l (HsLamCase (unLoc . mg_alts -> matches)))
   = export LambdaCaseE l [ mapM_ exportMatch matches ]
 exportExpression (L l (HsApp e1 e2)) = export AppE l [ exportExpression e1, exportExpression e2 ]
@@ -73,14 +74,13 @@ exportExpression (L l (ExplicitTuple tupArgs box))
                     (Boxed, False) -> TupleSectionE
                     (Unboxed, False) -> UnboxedTupleSectionE
 exportExpression (L l (HsCase expr (unLoc . mg_alts -> cases)))
-  = addToScope (combineLocated cases)
-      $ export LambdaCaseE l [ exportExpression expr, mapM_ exportMatch cases ]
+  = export LambdaCaseE l [ exportExpression expr, mapM_ exportMatch cases ]
 exportExpression (L l (HsIf _ expr thenE elseE))
   = export IfE l [ exportExpression expr, exportExpression thenE, exportExpression elseE ]
 exportExpression (L l (HsMultiIf _ parts))
   = export MultiIfE l [ mapM_ exportRhss parts ]
 exportExpression (L l (HsLet (unLoc -> binds) expr))
-  = addToScope l $ export LetE l [ exportLocalBinds (L l binds), exportExpression expr ]
+  = newScope_ l $ export LetE l [ exportLocalBinds (L l binds), exportExpression expr ]
 exportExpression (L l (HsDo DoExpr (unLoc -> stmts) _))
   = export DoE l [ scopedSequence (exportDoStatement exportExpression) stmts ]
 exportExpression (L l (HsDo MDoExpr (unLoc -> [unLoc -> RecStmt { recS_stmts = stmts }, lastStmt]) _))
@@ -179,14 +179,14 @@ exportCmd (L l (HsCmdArrForm expr _ _ cmds))
   = export ArrowFormCmd l [ exportExpression expr, mapM_ exportCmdTop cmds ]
 exportCmd (L l (HsCmdApp cmd expr)) = export AppCmd l [ exportCmd cmd, exportExpression expr ]
 exportCmd (L l (HsCmdLam (MG (unLoc -> [unLoc -> Match _ pats _ (GRHSs [unLoc -> GRHS [] body] _)]) _ _ _)))
-  = addToScope l $ export LambdaCmd l [ mapM_ exportPattern pats, exportCmd body ]
+  = newScope_ l $ export LambdaCmd l [ mapM_ exportPattern pats, exportCmd body ]
 exportCmd (L l (HsCmdPar cmd)) = export ParenCmd l [ exportCmd cmd ]
 exportCmd (L l (HsCmdCase expr (MG (unLoc -> alts) _ _ _)))
   = export CaseCmd l [ exportExpression expr, mapM_ (gExportMatch exportCmd) alts ]
 exportCmd (L l (HsCmdIf _ pred thenExpr elseExpr))
   = export IfCmd l [ exportExpression pred, exportCmd thenExpr, exportCmd elseExpr ]
 exportCmd (L l (HsCmdLet binds cmd))
-  = addToScope l $ export LetCmd l [ exportLocalBinds binds, exportCmd cmd ]
+  = newScope_ l $ export LetCmd l [ exportLocalBinds binds, exportCmd cmd ]
 exportCmd (L l (HsCmdDo (unLoc -> stmts) _))
   = export DoCmd l [ scopedSequence (exportDoStatement exportCmd) stmts ]
 exportCmd (L l cmd) = exportError "command" cmd

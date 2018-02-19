@@ -3,7 +3,7 @@ system-ghc: true
 
 packages:
   - export
-  - refactor
+  # - refactor
   - core
 
 extra-deps:

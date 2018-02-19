@@ -25,7 +25,6 @@ import Outputable
 
 import GHC
 import ErrUtils
-import Language.Haskell.Heed.DBUtils
 
 instance IsRdrName RdrName where
   toRdrName = id

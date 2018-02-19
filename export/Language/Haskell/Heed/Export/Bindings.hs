@@ -54,15 +54,16 @@ exportMatch = gExportMatch exportExpression
 
 gExportMatch :: forall n e . HsName n => Exporter e -> Exporter (Located (GHC.Match n e))
 gExportMatch exportExpr (L l (GHC.Match id pats _ (GRHSs rhss locBinds))) = do
-  node <- writeInsert Match l
-  defining $ goInto node 1
+  writeInsert Match l
+  defining $ goInto l 1
     $ case id of FunRhs name GHC.Prefix _ -> exportNameOrRdrName @n exportName name
                  FunRhs name GHC.Infix _  -> exportNameOrRdrName @n exportOperator name
                  _                        -> return ()
-  addToScope (combineLocated pats) $ do
-    goInto node 2 $ mapM_ exportPattern pats
-    goInto node 3 $ mapM_ (gExportRhss exportExpr) rhss
-    goInto node 4 $ exportLocalBinds locBinds
+  let firstScopeRange = combineSpans $ map getLoc pats ++ map getLoc rhss ++ [getLoc locBinds]
+      secondScopeRange = combineSpans $ map getLoc rhss ++ [getLoc locBinds]
+  newScope firstScopeRange (goInto l 2 $ mapM_ exportPattern pats) $
+    newScope_ secondScopeRange $ do goInto l 4 $ exportLocalBinds locBinds
+                                    goInto l 3 $ mapM_ (gExportRhss exportExpr) rhss
 
 exportRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
 exportRhss = gExportRhss exportExpression
@@ -81,10 +82,10 @@ exportRhsGuard (L l stmt) = exportError "rhs guard" stmt
 
 exportLocalBinds :: HsName n => Exporter (LHsLocalBinds n)
 exportLocalBinds (L l (HsValBinds (ValBindsIn binds sigs)))
-  = addToScope l $ export LocalBindings l [ mapM_ exportBinding (bagToList binds) >> mapM_ exportLocalSig sigs ]
+  = export LocalBindings l [ mapM_ exportBinding (bagToList binds) >> mapM_ exportLocalSig sigs ]
 exportLocalBinds (L l (HsValBinds (ValBindsOut binds sigs)))
-  = addToScope l $ export LocalBindings l [ mapM_ exportBinding (concatMap (bagToList . snd) binds) >> mapM_ exportLocalSig sigs ]
-exportLocalBinds bind@(L l (HsIPBinds (IPBinds binds _))) = addToScope l $ mapM_ exportIPBind binds
+  = export LocalBindings l [ mapM_ exportBinding (concatMap (bagToList . snd) binds) >> mapM_ exportLocalSig sigs ]
+exportLocalBinds bind@(L l (HsIPBinds (IPBinds binds _))) = mapM_ exportIPBind binds
 exportLocalBinds (L l EmptyLocalBinds) = return ()
 
 exportLocalSig :: HsName n => Exporter (Located (Sig n))

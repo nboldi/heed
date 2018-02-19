@@ -2,28 +2,26 @@ module Language.Haskell.Heed.Export.Lexical where
 
 import Data.Text (pack)
 import GHC
-import Database.Selda
 
-import Language.Haskell.Heed.Database
 import Language.Haskell.Heed.Export.Utilities
 
-insertTokens :: [((SrcSpan, AnnKeywordId), [SrcSpan])] -> SeldaT Ghc ()
+insertTokens :: [((SrcSpan, AnnKeywordId), [SrcSpan])] -> Ghc ()
 insertTokens ghcTokens = do
-  let toInsert =
-        map (\((_, keyw), sp:_) ->
-                 let (file, start_row, start_col, end_row, end_col) = spanData sp
-                  in pack file :*: start_row :*: start_col :*: end_row :*: end_col :*: pack (show keyw)
-            ) ghcTokens
-  insert_ tokens toInsert
+  -- let toInsert =
+  --       map (\((_, keyw), sp:_) ->
+  --                let (file, start_row, start_col, end_row, end_col) = spanData sp
+  --                 in pack file :*: start_row :*: start_col :*: end_row :*: end_col :*: pack (show keyw)
+  --           ) ghcTokens
+  return ()
 
-insertComments :: [Located AnnotationComment] -> SeldaT Ghc ()
+insertComments :: [Located AnnotationComment] -> Ghc ()
 insertComments ghcComments = do
-  let toInsert =
-        map (\(L l comm) -> let (file, start_row, start_col, end_row, end_col) = spanData l
-                                (kind, text) = categorizeComment comm
-                             in pack file :*: start_row :*: start_col :*: end_row :*: end_col :*: pack text :*: pack kind
-            ) ghcComments
-  insert_ comments toInsert
+  -- let toInsert =
+  --       map (\(L l comm) -> let (file, start_row, start_col, end_row, end_col) = spanData l
+  --                               (kind, text) = categorizeComment comm
+  --                            in pack file :*: start_row :*: start_col :*: end_row :*: end_col :*: pack text :*: pack kind
+  --           ) ghcComments
+  return ()
 
 categorizeComment :: AnnotationComment -> (String, String)
 categorizeComment (AnnDocCommentNext str) = ("AnnDocCommentNext", str)
