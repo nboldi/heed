@@ -35,9 +35,9 @@ exportExpression (L l (HsIPVar ip)) = export VarE l [ exportImplicitName (L l ip
 exportExpression (L l (HsOverLit (ol_val -> val))) = export LiteralE l [ exportPolyLiteral (L l val) ]
 exportExpression (L l (HsLit val)) = export LiteralE l [ exportMonoLiteral (L l val) ]
 exportExpression (L l (HsLam (unLoc . mg_alts -> [unLoc -> Match _ pats _ (GRHSs [unLoc -> GRHS [] expr] (unLoc -> EmptyLocalBinds))])))
-  = do writeInsert LambdaE l
-       newScope l (goInto l 1 $ mapM_ exportPattern pats)
-                  (goInto l 2 $ exportExpression expr)
+  = do ind <- writeInsert LambdaE l
+       newScope l (goInto ind 1 $ mapM_ exportPattern pats)
+                  (goInto ind 2 $ exportExpression expr)
 exportExpression (L l (HsLamCase (unLoc . mg_alts -> matches)))
   = export LambdaCaseE l [ mapM_ exportMatch matches ]
 exportExpression (L l (HsApp e1 e2)) = export AppE l [ exportExpression e1, exportExpression e2 ]

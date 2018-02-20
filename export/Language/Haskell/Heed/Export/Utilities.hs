@@ -34,6 +34,7 @@ import Language.Haskell.TH.LanguageExtensions
 
 import System.Directory
 import System.IO
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Writer
@@ -46,7 +47,7 @@ import Data.Text (pack, unpack)
 import Language.Haskell.Heed.Schema (Schema(..))
 import qualified Language.Haskell.Heed.Schema as Schema
 
-data ExportState = ExportState { parentData :: Maybe (SrcSpan, Int)
+data ExportState = ExportState { parentData :: Maybe (Int, Int)
                                , exportStage :: ExportStage
                                , nameExportForced :: Bool
                                , compiledModule :: ModSummary
@@ -59,18 +60,21 @@ data ExportState = ExportState { parentData :: Maybe (SrcSpan, Int)
                                , defFileName :: String
                                , globalEnv :: Maybe TcGblEnv
                                , handles :: ExportHandles
+                               , counters :: ExportCounters
                                }
 
 data ExportStore = ExportStore [(SrcSpan, SrcSpan)] [SrcSpan]
 
 withExportHandles :: MonadIO m => (ExportHandles -> m a) -> m a
 withExportHandles action = do
-  handles@[node] <- liftIO $ mapM (flip openFile WriteMode) [ "nodes.csv" ]
+  handles@[node] <- liftIO $ mapM (flip openFile AppendMode) [ "nodes.csv" ]
   res <- action (ExportHandles node)
   liftIO $ mapM_ hClose handles
   return res
 
 data ExportHandles = ExportHandles { nodeHandle :: Handle }
+
+data ExportCounters = ExportCounters { nodeCounter :: MVar Int }
 
 emptyStore :: ExportStore
 emptyStore = ExportStore [] []
@@ -83,22 +87,25 @@ instance Monoid ExportStore where
 data ExportStage = ParsedStage | RenameStage | TypedStage deriving (Eq, Show)
 
 initExportState :: ModSummary -> SrcSpan -> String -> ExportHandles -> ExportStore -> ExportStage
-                     -> Maybe TcGblEnv -> ExportState
+                     -> Maybe TcGblEnv -> IO ExportState
 initExportState mod loc fileName handles (ExportStore amb skip) stage gblEnv
-  = ExportState { parentData = Nothing
-                , exportStage = stage
-                , nameExportForced = False
-                , compiledModule = mod
-                , isDefining = False
-                , scopeToRegister = Nothing
-                , visibleScope = Nothing
-                , ambiguousNames = amb
-                , skippedRanges = skip
-                , moduleRange = loc
-                , defFileName = fileName
-                , globalEnv = gblEnv
-                , handles = handles
-                }
+  = do nodeCounter <- newMVar 1
+       let counters = ExportCounters nodeCounter
+       return $ ExportState { parentData = Nothing
+                            , exportStage = stage
+                            , nameExportForced = False
+                            , compiledModule = mod
+                            , isDefining = False
+                            , scopeToRegister = Nothing
+                            , visibleScope = Nothing
+                            , ambiguousNames = amb
+                            , skippedRanges = skip
+                            , moduleRange = loc
+                            , defFileName = fileName
+                            , globalEnv = gblEnv
+                            , handles = handles
+                            , counters = counters
+                            }
 
 type TrfType = ReaderT ExportState Ghc
 
@@ -142,8 +149,9 @@ class (DataId n, HasOccName n, HsHasName n, IsRdrName n, Outputable n, Compilati
   exportFieldOccName :: Exporter (Located (FieldOcc n))
   exportAmbiguous :: (forall x . HsName x => Exporter (Located x)) -> Exporter (Located (AmbiguousFieldOcc n))
 
-goInto :: SrcSpan -> Int -> TrfType a -> TrfType a
-goInto loc ref = local (\s -> s { parentData = Just (loc, ref) })
+goInto :: Maybe Int -> Int -> TrfType a -> TrfType a
+goInto (Just ind) ref = local (\s -> s { parentData = Just (ind, ref) })
+goInto Nothing _ = id
 
 defining :: TrfType a -> TrfType a
 defining = local $ \s -> s { isDefining = True }
@@ -154,15 +162,31 @@ notDefining = local $ \s -> s { isDefining = False }
 forceNameExport :: TrfType a -> TrfType a
 forceNameExport = local $ \s -> s { nameExportForced = True }
 
-writeInsert :: Schema s => s -> SrcSpan -> TrfType ()
+writeInsert :: Schema s => s -> SrcSpan -> TrfType (Maybe Int)
 writeInsert ctor loc = do
   stage <- asks exportStage
-  if stage == ParsedStage then writeInsert' ctor loc
-                          else return ()
+  if stage == ParsedStage then Just <$> writeInsert' ctor loc
+                          else return Nothing
 
-writeInsert' :: Schema s => s -> SrcSpan -> TrfType ()
+writeInsert' :: Schema s => s -> SrcSpan -> TrfType Int
 writeInsert' ctor loc = do
-  return ()
+  output <- asks (nodeHandle . handles)
+  count <- asks (nodeCounter . counters)
+  pd <- asks parentData
+  let (file, startRow, startCol, endRow, endCol) = spanData loc
+
+  ind <- liftIO $ modifyMVar count (\a -> return (a+1,a))
+
+  liftIO
+    $ hPutStrLn output
+    $ -- key, type and constructor
+      show ind ++ ";" ++ dataTypeName (dataTypeOf ctor) ++ ";" ++ show (toConstr ctor) ++ ";"
+      -- location
+        ++ file ++ ";" ++ show startRow ++ ";" ++ show startCol ++ ";" ++ show endRow ++ ";" ++ show endCol ++ ";"
+      -- parent location and reference
+        ++ (case pd of Just (ind,r) -> show ind ++ ";" ++ show r ++ ";"
+                       _            -> ";;")
+  return ind
 
 writeIntAttribute :: Int -> TrfType ()
 writeIntAttribute i = return ()
@@ -269,8 +293,8 @@ export :: Schema c => c -> SrcSpan -> [(TrfType ())] -> TrfType ()
 export ctor loc fields = do
   skipped <- asks skippedRanges -- skip elements that are generated by TH
   when (all (not . (`spanCont` loc)) skipped) $ do
-    writeInsert ctor loc
-    mapM_ (\(i,val) -> goInto loc i val) (zip [1..] fields)
+    ind <- writeInsert ctor loc
+    mapM_ (\(i,val) -> goInto ind i val) (zip [1..] fields)
 
 exportError :: (Data s, Outputable s) => String -> s -> TrfType a
 exportError exporter a =

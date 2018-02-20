@@ -37,8 +37,8 @@ import Language.Haskell.Heed.Export.Modules
 import Language.Haskell.Heed.Export.Utilities
 import Language.Haskell.Heed.Export.Lexical
 
-exportSrcFile :: FilePath -> FilePath -> String -> Bool -> IO ()
-exportSrcFile dbPath root modName doExport =
+exportSrcFile :: FilePath -> String -> Bool -> IO ()
+exportSrcFile root modName doExport =
   runGhc (Just libdir) $ do
     dflags <- getSessionDynFlags
     void $ setSessionDynFlags
@@ -50,10 +50,10 @@ exportSrcFile dbPath root modName doExport =
     modSum <- getModSummary $ mkModuleName modName
     when doExport $ do
       -- withSQLite dbPath $ cleanDatabase
-      exportModSummary dbPath modSum
+      exportModSummary modSum
 
-exportModSummary :: FilePath -> ModSummary -> Ghc ()
-exportModSummary db ms = do
+exportModSummary :: ModSummary -> Ghc ()
+exportModSummary ms = do
   df <- getSessionDynFlags
   p <- parseModule ms
   let (ghcTokens, ghcComments) = pm_annotations $ p
@@ -62,8 +62,8 @@ exportModSummary db ms = do
   let tc = fst $ tm_internals_ t
       hpm = HsParsedModule (pm_parsed_source p) (pm_extra_src_files p) (pm_annotations p)
       modRecord = ( ms , hpm , tc )
-  exportModStuff db modRecord
-  exportGlobalStuff db
+  exportModStuff modRecord
+  exportGlobalStuff
 
 -- parsedAction :: [String] -> ModSummary -> HsParsedModule -> Hsc HsParsedModule
 -- parsedAction [db] ms pm = withSQLite db $ transaction $ do
@@ -101,8 +101,8 @@ exportModSummary db ms = do
 
 type ModRecord = (ModSummary, HsParsedModule, TcGblEnv)
 
-exportModStuff :: FilePath -> ModRecord -> Ghc ()
-exportModStuff db (ms, p, t) = do
+exportModStuff :: ModRecord -> Ghc ()
+exportModStuff (ms, p, t) = do
   df <- getSessionDynFlags
   let (ghcTokens, ghcComments) = hpm_annotations p
       tokenKeys = Map.assocs ghcTokens
@@ -120,24 +120,26 @@ exportModStuff db (ms, p, t) = do
     let moduleLoc = case find (\((_,kw),_) -> kw == AnnEofPos) tokenKeys of
                       Just (_, [l@(RealSrcSpan sp)]) -> mkSrcSpan (mkSrcLoc (srcSpanFile sp) 1 1) (srcSpanEnd l)
                       _ -> noSrcSpan
-    let exportSt = initExportState ms moduleLoc fileName handles
+    parseExportSt <- liftIO $ initExportState ms moduleLoc fileName handles emptyStore ParsedStage (Just t)
     df <- getSessionDynFlags
-    flip runReaderT (exportSt emptyStore ParsedStage (Just t)) $ exportModule $ hpm_module p
+    flip runReaderT parseExportSt $ exportModule $ hpm_module p
     -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "parsed stage done")
     evaluatedNodes <- return [] -- getEvaluatedNodes
     let store1 = ExportStore [] evaluatedNodes
+    renameExportSt <- liftIO $ initExportState ms moduleLoc fileName handles store1 RenameStage Nothing
     case getRenamed t of
-      Just rs -> flip runReaderT (exportSt store1 RenameStage Nothing) $ exportRnModule rs
+      Just rs -> flip runReaderT renameExportSt $ exportRnModule rs
       Nothing -> error "Renamed stuff is not found"
     ambiguousNames <- return [] -- getAmbiguousNames modId
     let store2 = ExportStore ambiguousNames evaluatedNodes
+    tcExportSt <- liftIO $ initExportState ms moduleLoc fileName handles store2 TypedStage Nothing
     -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "renamed stage done")
-    flip runReaderT (exportSt store2 TypedStage Nothing) $ exportTcModule $ (tcg_binds t)
+    flip runReaderT tcExportSt $ exportTcModule $ (tcg_binds t)
     -- liftIO $ logInfo df (defaultUserStyle df) (Outputable.text $ "typechecked stage done")
     return ()
 
-exportGlobalStuff :: FilePath -> Ghc ()
-exportGlobalStuff db = do
+exportGlobalStuff :: Ghc ()
+exportGlobalStuff = do
   sess <- getSession
   eps <- liftIO $ hscEPS sess
   let pit = eps_PIT eps

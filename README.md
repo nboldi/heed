@@ -4,7 +4,7 @@
 Exporting one module:
 
 ```
-ghc -ffrontend Language.Haskell.Heed.Export.Plugin -ffrontend-opt <dbfile> -j1
+ghc --frontend Language.Haskell.Heed.Export.Plugin -ffrontend-opt <dbfile> -j1
 ```
 
 Exporting a cabal project:

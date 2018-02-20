@@ -54,16 +54,16 @@ exportMatch = gExportMatch exportExpression
 
 gExportMatch :: forall n e . HsName n => Exporter e -> Exporter (Located (GHC.Match n e))
 gExportMatch exportExpr (L l (GHC.Match id pats _ (GRHSs rhss locBinds))) = do
-  writeInsert Match l
-  defining $ goInto l 1
+  ind <- writeInsert Match l
+  defining $ goInto ind 1
     $ case id of FunRhs name GHC.Prefix _ -> exportNameOrRdrName @n exportName name
                  FunRhs name GHC.Infix _  -> exportNameOrRdrName @n exportOperator name
                  _                        -> return ()
   let firstScopeRange = combineSpans $ map getLoc pats ++ map getLoc rhss ++ [getLoc locBinds]
       secondScopeRange = combineSpans $ map getLoc rhss ++ [getLoc locBinds]
-  newScope firstScopeRange (goInto l 2 $ mapM_ exportPattern pats) $
-    newScope_ secondScopeRange $ do goInto l 4 $ exportLocalBinds locBinds
-                                    goInto l 3 $ mapM_ (gExportRhss exportExpr) rhss
+  newScope firstScopeRange (goInto ind 2 $ mapM_ exportPattern pats) $
+    newScope_ secondScopeRange $ do goInto ind 4 $ exportLocalBinds locBinds
+                                    goInto ind 3 $ mapM_ (gExportRhss exportExpr) rhss
 
 exportRhss :: HsName n => Exporter (Located (GRHS n (LHsExpr n)))
 exportRhss = gExportRhss exportExpression
